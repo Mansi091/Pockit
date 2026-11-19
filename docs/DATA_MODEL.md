@@ -12,7 +12,7 @@ Local tables add sync flags (`needs_push`, image flags) that never leave the dev
 | `contact_phones` | Labelled numbers: `label`, `country_iso`, `calling_code`, `national_number`, `e164`, `raw_input`, `needs_review`, `position` | → contacts (many) |
 | `contact_emails` | Labelled addresses | → contacts (many) |
 | `categories` | User-defined groups: `name`, `color`, `icon` | — |
-| `contact_categories` | Many-to-many contact ↔ category, unique pair | → contacts, → categories |
+| `contact_categories` | Many-to-many contact ↔ category, unique pair. **Id = SHA-256 of the pair** (UUID-shaped), so two devices linking the same pair offline create the same row; unlinking tombstones it, re-linking revives it | → contacts, → categories |
 | `events` | Wedding, expo, conference…: `name`, `location`, `starts_on`, `ends_on` | — |
 | `event_contacts` | Many-to-many event ↔ contact, unique pair | → events, → contacts |
 | `interactions` | Meeting details & notes history: `occurred_on`, `place`, `notes` | → contacts (many) |

@@ -1,12 +1,13 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing } from '@/constants/theme';
 import ContactCard from '@/components/ContactCard';
 import CustomButton from '@/components/CustomButton';
 import EmptyState from '@/components/EmptyState';
 import { getCompanies, searchContacts } from '@/services/contactService';
+import { getCategories, type CategoryWithCount } from '@/services/categoryService';
 import { useContactsVersion } from '@/services/dataEvents';
 import type { Contact } from '@/types/contact';
 
@@ -14,22 +15,41 @@ import type { Contact } from '@/types/contact';
 export default function ContactsScreen() {
   const version = useContactsVersion(); // refresh after saves and background syncs
   const [query, setQuery] = useState('');
+  const params = useLocalSearchParams<{ category?: string; favourites?: string }>();
   const [company, setCompany] = useState<string | null>(null);
   const [companies, setCompanies] = useState<string[]>([]);
+  // Group filter: everyone, ⭐ favourites, or one category (can be preset by the Categories tab).
+  const [group, setGroup] = useState<{ kind: 'all' } | { kind: 'fav' } | { kind: 'cat'; id: string }>({ kind: 'all' });
+  const [categories, setCategories] = useState<CategoryWithCount[]>([]);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (params.category) setGroup({ kind: 'cat', id: params.category });
+    else if (params.favourites) setGroup({ kind: 'fav' });
+  }, [params.category, params.favourites]);
 
   const load = useCallback(async () => {
     try {
       setError(null);
-      const [list, comps] = await Promise.all([searchContacts(query, company), getCompanies()]);
+      const [list, comps, cats] = await Promise.all([
+        searchContacts(query, {
+          company,
+          favouritesOnly: group.kind === 'fav',
+          categoryId: group.kind === 'cat' ? group.id : null,
+        }),
+        getCompanies(),
+        getCategories(),
+      ]);
       setContacts(list);
       setCompanies(comps);
+      setCategories(cats);
       if (company && !comps.includes(company)) setCompany(null);
+      if (group.kind === 'cat' && !cats.some((c) => c.id === group.id)) setGroup({ kind: 'all' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load contacts.');
     }
-  }, [query, company]);
+  }, [query, company, group]);
 
   // Runs when the tab gains focus and whenever search, filter or data changes.
   useFocusEffect(
@@ -38,7 +58,7 @@ export default function ContactsScreen() {
     }, [load, version]),
   );
 
-  const hasFilters = !!query.trim() || !!company;
+  const hasFilters = !!query.trim() || !!company || group.kind !== 'all';
   const total = contacts?.length ?? 0;
 
   return (
@@ -61,12 +81,32 @@ export default function ContactsScreen() {
         )}
       </View>
 
-      {companies.length > 0 && (
+      {/* Groups: everyone · favourites · categories */}
+      <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          <Chip label="All" active={group.kind === 'all'} onPress={() => setGroup({ kind: 'all' })} />
+          <Chip label="★ Favourites" active={group.kind === 'fav'} onPress={() => setGroup(group.kind === 'fav' ? { kind: 'all' } : { kind: 'fav' })} />
+          {categories.map((c) => {
+            const on = group.kind === 'cat' && group.id === c.id;
+            return (
+              <Chip
+                key={c.id}
+                label={c.name}
+                dot={c.color}
+                active={on}
+                activeColor={c.color}
+                onPress={() => setGroup(on ? { kind: 'all' } : { kind: 'cat', id: c.id })}
+              />
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {companies.length > 1 && (
         <View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-            <Chip label="All" active={!company} onPress={() => setCompany(null)} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chips, { paddingTop: 0 }]}>
             {companies.map((c) => (
-              <Chip key={c} label={c} active={company === c} onPress={() => setCompany(company === c ? null : c)} />
+              <Chip key={c} label={c} small active={company === c} onPress={() => setCompany(company === c ? null : c)} />
             ))}
           </ScrollView>
         </View>
@@ -128,15 +168,23 @@ export default function ContactsScreen() {
   );
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Chip({ label, active, onPress, dot, activeColor, small }: {
+  label: string; active: boolean; onPress: () => void; dot?: string; activeColor?: string; small?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      style={[styles.chip, active && styles.chipActive]}
+      style={[
+        styles.chip,
+        small && styles.chipSmall,
+        active && styles.chipActive,
+        active && activeColor ? { backgroundColor: activeColor, borderColor: activeColor } : null,
+      ]}
     >
-      <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+      {dot && <View style={[styles.dot, { backgroundColor: active ? '#fff' : dot }]} />}
+      <Text style={[styles.chipText, small && { fontSize: 12 }, active && styles.chipTextActive]} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -166,8 +214,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     maxWidth: 200,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
+  chipSmall: { paddingVertical: 5, paddingHorizontal: 11 },
   chipActive: { backgroundColor: colors.text, borderColor: colors.text },
+  dot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   chipText: { fontSize: 13, color: colors.text, fontWeight: '500' },
   chipTextActive: { color: colors.textOnPrimary, fontWeight: '600' },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 },

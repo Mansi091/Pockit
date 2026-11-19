@@ -8,7 +8,8 @@ import ImagePreview from '@/components/ImagePreview';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import CardPhotoComposer, { type CardPhotoComposerHandle } from '@/components/CardPhotoComposer';
-import { deleteContact, getContactDetails, linkNativeContact } from '@/services/contactService';
+import { deleteContact, getContactDetails, linkNativeContact, setFavourite } from '@/services/contactService';
+import { getCategories, type CategoryWithCount } from '@/services/categoryService';
 import { attachCardPhotoToPhoneContact, openPhoneContact, phoneContactExists, saveToPhoneContacts } from '@/services/nativeContactsService';
 import { useContactsVersion } from '@/services/dataEvents';
 import { dialString, formatPhone } from '@/utils/phone';
@@ -22,6 +23,7 @@ export default function ContactProfileScreen() {
   const [contact, setContact] = useState<Contact | null | undefined>(undefined); // undefined = loading
   const [phones, setPhones] = useState<ContactPhone[]>([]);
   const [emails, setEmails] = useState<ContactEmail[]>([]);
+  const [contactCategories, setContactCategories] = useState<CategoryWithCount[]>([]);
   const [savingToPhone, setSavingToPhone] = useState(false);
   const composerRef = useRef<CardPhotoComposerHandle>(null);
   // Square "whole card on white" photo for the phone's Contacts app (null → plain photo).
@@ -33,6 +35,8 @@ export default function ContactProfileScreen() {
       setContact(details?.contact ?? null);
       setPhones(details?.phones ?? []);
       setEmails(details?.emails ?? []);
+      const all = details?.categoryIds.length ? await getCategories() : [];
+      setContactCategories(all.filter((c) => details!.categoryIds.includes(c.id)));
     } catch {
       setContact(null);
     }
@@ -144,10 +148,37 @@ export default function ContactProfileScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Avatar name={contact.personName} size={84} />
+        <View>
+          <Avatar name={contact.personName} size={84} />
+          <Pressable
+            onPress={() => setFavourite(contact.id, !contact.isFavourite)}
+            hitSlop={10}
+            style={styles.star}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: contact.isFavourite }}
+            accessibilityLabel="Favourite"
+          >
+            <Ionicons name={contact.isFavourite ? 'star' : 'star-outline'} size={20} color={contact.isFavourite ? '#F59E0B' : colors.textMuted} />
+          </Pressable>
+        </View>
         <Text style={styles.name}>{contact.personName}</Text>
         {!!contact.designation && <Text style={styles.designation}>{contact.designation}</Text>}
         {!!contact.companyName && <Text style={styles.company}>{contact.companyName}</Text>}
+        {contactCategories.length > 0 && (
+          <View style={styles.catRow}>
+            {contactCategories.map((c) => (
+              <Pressable
+                key={c.id}
+                onPress={() => router.navigate({ pathname: '/contacts', params: { category: c.id } })}
+                style={[styles.catChip, { backgroundColor: c.color }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Category ${c.name}`}
+              >
+                <Text style={styles.catText} numberOfLines={1}>{c.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <View style={styles.quickActions}>
           <QuickAction icon="call-outline" label="Call" disabled={!phone} onPress={() => open(`tel:${phone}`)} />
@@ -268,6 +299,22 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: spacing.xxl },
   header: { alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  star: {
+    position: 'absolute',
+    right: -6,
+    bottom: -2,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow,
+    elevation: 3,
+  },
+  catRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: spacing.md },
+  catChip: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, maxWidth: 180 },
+  catText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   name: { ...typography.title, marginTop: spacing.md, textAlign: 'center' },
   designation: { color: colors.textMuted, fontSize: 15, marginTop: 4, textAlign: 'center' },
   company: { color: colors.text, fontSize: 15, marginTop: 2, fontWeight: '600', textAlign: 'center' },

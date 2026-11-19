@@ -2,6 +2,7 @@ import { randomUUID } from 'expo-crypto';
 import * as repo from '@/database/contactRepository';
 import { getCurrentUserId, getDb } from '@/database/db';
 import * as structured from '@/database/structuredRepository';
+import * as categories from '@/database/categoryRepository';
 import { deleteImage, persistCardImage } from '@/services/imageService';
 import { emitContactsChanged } from '@/services/dataEvents';
 import { requestSync } from '@/services/syncService';
@@ -54,6 +55,8 @@ export function cleanInput(input: ContactInput): CleanInput {
     address: t(input.address),
     cardImagePath: input.cardImagePath,
     rawOcrText: t(input.rawOcrText),
+    categoryIds: input.categoryIds,
+    isFavourite: input.isFavourite,
   };
 }
 
@@ -74,22 +77,34 @@ function changed() {
 export const getAllContacts = (): Promise<Contact[]> => repo.findAll();
 export const getContactById = (id: string): Promise<Contact | null> => repo.findById(id);
 export const getRecentContacts = (limit = 5): Promise<Contact[]> => repo.findRecent(limit);
-export const searchContacts = (query: string, company?: string | null): Promise<Contact[]> =>
-  repo.search(query, company ?? null);
+export const searchContacts = (query: string, filters: repo.SearchFilters = {}): Promise<Contact[]> =>
+  repo.search(query, filters);
+export const getFavourites = (limit?: number): Promise<Contact[]> => repo.findFavourites(limit);
+
+/** Star / unstar a contact (synced). */
+export async function setFavourite(id: string, favourite: boolean): Promise<void> {
+  await repo.setFavourite(id, favourite, new Date().toISOString());
+  changed();
+}
 export const getCompanies = (): Promise<string[]> => repo.distinctCompanies();
 
 export interface ContactDetails {
   contact: Contact;
   phones: ContactPhone[];
   emails: ContactEmail[];
+  categoryIds: string[];
 }
 
 /** Contact + its structured phones and emails (profile & edit screens). */
 export async function getContactDetails(id: string): Promise<ContactDetails | null> {
   const contact = await repo.findById(id);
   if (!contact) return null;
-  const [phones, emails] = await Promise.all([structured.findPhones(id), structured.findEmails(id)]);
-  return { contact, phones, emails };
+  const [phones, emails, categoryIds] = await Promise.all([
+    structured.findPhones(id),
+    structured.findEmails(id),
+    categories.categoryIdsForContact(id),
+  ]);
+  return { contact, phones, emails, categoryIds };
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -137,7 +152,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
     cardImagePath,
     nativeContactId: null,
     rawOcrText: data.rawOcrText,
-    isFavourite: false,
+    isFavourite: !!data.isFavourite,
     cardBackImagePath: null,
     createdAt: ts,
     updatedAt: ts,
@@ -148,6 +163,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
       await repo.insertContact(contact);
       await structured.replacePhones(id, data.phones, ts);
       await structured.replaceEmails(id, data.emails, ts);
+      if (data.categoryIds?.length) await categories.setContactCategories(id, data.categoryIds, ts);
     });
   } catch (e) {
     deleteImage(cardImagePath); // don't leave an orphaned file behind
@@ -179,6 +195,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     website: data.website,
     address: data.address,
     rawOcrText: data.rawOcrText,
+    isFavourite: data.isFavourite ?? existing.isFavourite,
     cardImagePath,
     updatedAt: now,
   };
@@ -186,6 +203,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     await repo.updateContactRow(updated, imageChanged);
     await structured.replacePhones(id, data.phones, now);
     await structured.replaceEmails(id, data.emails, now);
+    if (data.categoryIds) await categories.setContactCategories(id, data.categoryIds, now);
   });
   changed();
   return updated;

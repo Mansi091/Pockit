@@ -10,7 +10,7 @@ const icon =
     <Ionicons name={focused ? active : inactive} size={size} color={focused ? colors.primary : colors.textSubtle} />
   );
 
-/** Bottom navigation: Home · Contacts · (Scan) · Settings. */
+/** Bottom navigation: Home · Contacts · (Scan) · Categories · Settings. */
 export default function TabLayout() {
   return (
     <Tabs
@@ -50,6 +50,7 @@ export default function TabLayout() {
           },
         }}
       />
+      <Tabs.Screen name="categories" options={{ title: 'Categories', tabBarIcon: icon('pricetags', 'pricetags-outline') }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: icon('settings', 'settings-outline') }} />
     </Tabs>
   );

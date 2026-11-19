@@ -54,21 +54,37 @@ const ALIVE = 'deleted_at IS NULL';
 export async function insertContact(c: Contact): Promise<void> {
   await getDb().runAsync(
     `INSERT INTO contacts (id, person_name, company_name, designation, phone, email, website, address,
-       card_image_path, native_contact_id, raw_ocr_text, created_at, updated_at, needs_push, image_needs_push)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+       card_image_path, native_contact_id, raw_ocr_text, is_favourite, created_at, updated_at, needs_push, image_needs_push)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
     c.id, c.personName, c.companyName, c.designation, c.phone, c.email, c.website, c.address,
-    c.cardImagePath, c.nativeContactId, c.rawOcrText, c.createdAt, c.updatedAt, c.cardImagePath ? 1 : 0,
+    c.cardImagePath, c.nativeContactId, c.rawOcrText, c.isFavourite ? 1 : 0, c.createdAt, c.updatedAt, c.cardImagePath ? 1 : 0,
   );
+}
+
+/** Star / unstar. Synced (is_favourite is a contacts column in the cloud). */
+export async function setFavourite(id: string, favourite: boolean, now: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE contacts SET is_favourite = ?, updated_at = ?, needs_push = 1 WHERE id = ? AND ${ALIVE}`,
+    favourite ? 1 : 0, now, id,
+  );
+}
+
+export async function findFavourites(limit = 20): Promise<Contact[]> {
+  const rows = await getDb().getAllAsync<ContactRow>(
+    `SELECT * FROM contacts WHERE ${ALIVE} AND is_favourite = 1 ORDER BY person_name COLLATE NOCASE LIMIT ?`,
+    limit,
+  );
+  return rows.map(toContact);
 }
 
 export async function updateContactRow(c: Contact, imageChanged: boolean): Promise<void> {
   await getDb().runAsync(
     `UPDATE contacts SET person_name = ?, company_name = ?, designation = ?, phone = ?, email = ?, website = ?,
-       address = ?, card_image_path = ?, raw_ocr_text = ?, updated_at = ?, needs_push = 1,
+       address = ?, card_image_path = ?, raw_ocr_text = ?, is_favourite = ?, updated_at = ?, needs_push = 1,
        image_needs_push = CASE WHEN ? THEN 1 ELSE image_needs_push END
      WHERE id = ? AND ${ALIVE}`,
     c.personName, c.companyName, c.designation, c.phone, c.email, c.website, c.address,
-    c.cardImagePath, c.rawOcrText, c.updatedAt, imageChanged ? 1 : 0, c.id,
+    c.cardImagePath, c.rawOcrText, c.isFavourite ? 1 : 0, c.updatedAt, imageChanged ? 1 : 0, c.id,
   );
 }
 
@@ -105,10 +121,24 @@ export async function findRecent(limit: number): Promise<Contact[]> {
   return rows.map(toContact);
 }
 
-/** Case-insensitive search on person/company name, optional exact company filter. */
-export async function search(query: string, company: string | null): Promise<Contact[]> {
+export interface SearchFilters {
+  company?: string | null;
+  categoryId?: string | null;
+  favouritesOnly?: boolean;
+}
+
+/** Case-insensitive search on person/company name, with optional company / category / favourites filters. */
+export async function search(query: string, filters: SearchFilters = {}): Promise<Contact[]> {
+  const { company, categoryId, favouritesOnly } = filters;
   const clauses = [ALIVE];
   const params: string[] = [];
+  if (favouritesOnly) clauses.push('is_favourite = 1');
+  if (categoryId) {
+    clauses.push(
+      'EXISTS (SELECT 1 FROM contact_categories l WHERE l.contact_id = contacts.id AND l.category_id = ? AND l.deleted_at IS NULL)',
+    );
+    params.push(categoryId);
+  }
   const q = query.trim();
   if (q) {
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;

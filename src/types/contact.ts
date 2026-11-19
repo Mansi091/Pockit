@@ -115,6 +115,9 @@ export interface ContactInput {
   address: string | null;
   cardImagePath: string | null;
   rawOcrText: string | null;
+  /** P10. Omitted on update = leave unchanged. */
+  categoryIds?: string[];
+  isFavourite?: boolean;
 }
 
 export type ContactField = 'personName' | 'companyName' | 'designation' | 'phone' | 'email' | 'website' | 'address';

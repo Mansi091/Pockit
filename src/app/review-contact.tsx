@@ -11,6 +11,7 @@ import FormError from '@/components/FormError';
 import FormSection from '@/components/FormSection';
 import PhoneListEditor from '@/components/PhoneListEditor';
 import EmailListEditor from '@/components/EmailListEditor';
+import CategoryPicker from '@/components/CategoryPicker';
 import { countryByIso } from '@/data/countries';
 import { createContact, displayName, findDuplicates, getContactDetails, updateContact } from '@/services/contactService';
 import { scanSession } from '@/services/scanSession';
@@ -23,7 +24,8 @@ type TextForm = Record<TextKey, string>;
 const emptyText: TextForm = { personName: '', companyName: '', designation: '', website: '', address: '' };
 
 const CHECK = 'Auto-detected — please check this.';
-const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[]) => JSON.stringify([t, p, e]);
+const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[], cats: string[], fav: boolean) =>
+  JSON.stringify([t, p, e, [...cats].sort(), fav]);
 
 /**
  * Screen 5 – Review and Edit Contact.
@@ -42,6 +44,8 @@ export default function ReviewContactScreen() {
   const [text, setText] = useState<TextForm>(emptyText);
   const [phones, setPhones] = useState<PhoneDraft[]>([]);
   const [emails, setEmails] = useState<EmailDraft[]>([]);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [favourite, setFavourite] = useState(false);
   const [initial, setInitial] = useState('');
   const [initialText, setInitialText] = useState<TextForm>(emptyText);
   const [imagePath, setImagePath] = useState<string | null>(null);
@@ -72,7 +76,9 @@ export default function ReviewContactScreen() {
           setInitialText(t);
           setPhones(p);
           setEmails(e);
-          setInitial(snapshot(t, p, e));
+          setCategoryIds(details.categoryIds);
+          setFavourite(c.isFavourite);
+          setInitial(snapshot(t, p, e, details.categoryIds, c.isFavourite));
           setImagePath(c.cardImagePath);
           setRawOcr(c.rawOcrText);
         }
@@ -93,7 +99,7 @@ export default function ReviewContactScreen() {
         setInitialText(t);
         setPhones(p);
         setEmails(e);
-        setInitial(snapshot(t, p, e));
+        setInitial(snapshot(t, p, e, [], false));
         setImagePath(d?.cardImagePath ?? s.image?.uri ?? null);
         setRawOcr(d?.rawOcrText ?? s.ocr?.text ?? null);
         setLowConfidence(s.lowConfidence);
@@ -109,13 +115,21 @@ export default function ReviewContactScreen() {
   );
   const emailErrors = useMemo(() => emails.map((e) => validateEmail(e.address)).filter(Boolean), [emails]);
   const hasErrors = !!nameError || phoneErrors.length > 0 || emailErrors.length > 0;
-  const dirty = snapshot(text, phones, emails) !== initial;
+  const dirty = snapshot(text, phones, emails, categoryIds, favourite) !== initial;
 
   const set = (k: TextKey) => (v: string) => setText((f) => ({ ...f, [k]: v }));
   const warn = (k: ContactField & TextKey) =>
     lowConfidence.includes(k) && text[k] === initialText[k] && !!text[k] ? CHECK : null;
 
-  const buildInput = (): ContactInput => ({ ...text, phones, emails, cardImagePath: imagePath, rawOcrText: rawOcr });
+  const buildInput = (): ContactInput => ({
+    ...text,
+    phones,
+    emails,
+    cardImagePath: imagePath,
+    rawOcrText: rawOcr,
+    categoryIds,
+    isFavourite: favourite,
+  });
 
   const persist = async () => {
     setSaving(true);
@@ -223,6 +237,10 @@ export default function ReviewContactScreen() {
             warning={warn('personName')} autoCapitalize="words" placeholder="e.g. Priya Sharma" />
           <InputField label="Company" value={text.companyName} onChangeText={set('companyName')} warning={warn('companyName')} autoCapitalize="words" />
           <InputField label="Designation" value={text.designation} onChangeText={set('designation')} warning={warn('designation')} autoCapitalize="words" />
+        </FormSection>
+
+        <FormSection title="Categories & favourites" icon="pricetags-outline">
+          <CategoryPicker selected={categoryIds} onChange={setCategoryIds} favourite={favourite} onFavouriteChange={setFavourite} />
         </FormSection>
 
         <FormSection title="Contact details" icon="call-outline">

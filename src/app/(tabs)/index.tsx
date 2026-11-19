@@ -9,7 +9,8 @@ import ContactCard from '@/components/ContactCard';
 import CustomButton from '@/components/CustomButton';
 import EmptyState from '@/components/EmptyState';
 import { useAuth } from '@/auth/AuthProvider';
-import { getDashboardStats, getRecentContacts } from '@/services/contactService';
+import { getDashboardStats, getFavourites, getRecentContacts } from '@/services/contactService';
+import Avatar from '@/components/Avatar';
 import { useContactsVersion } from '@/services/dataEvents';
 import type { Contact, DashboardStats } from '@/types/contact';
 
@@ -27,13 +28,15 @@ export default function HomeScreen() {
   const version = useContactsVersion();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recent, setRecent] = useState<Contact[]>([]);
+  const [favourites, setFavourites] = useState<Contact[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setError(null);
-      const [s, r] = await Promise.all([getDashboardStats(), getRecentContacts(5)]);
+      const [s, r, f] = await Promise.all([getDashboardStats(), getRecentContacts(5), getFavourites(15)]);
+      setFavourites(f);
       setStats(s);
       setRecent(r);
     } catch (e) {
@@ -109,6 +112,32 @@ export default function HomeScreen() {
             </View>
             <Ionicons name="arrow-forward" size={20} color={colors.textOnPrimary} />
           </Pressable>
+
+          {/* Favourites strip */}
+          {favourites.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>★ Favourites</Text>
+                <Pressable onPress={() => router.navigate({ pathname: '/contacts', params: { favourites: '1' } })} hitSlop={8}>
+                  <Text style={styles.seeAll}>See all</Text>
+                </Pressable>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.favRow}>
+                {favourites.map((c) => (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => router.push({ pathname: '/contact/[id]', params: { id: c.id } })}
+                    style={styles.favItem}
+                    accessibilityRole="button"
+                    accessibilityLabel={c.personName}
+                  >
+                    <Avatar name={c.personName} size={56} />
+                    <Text style={styles.favName} numberOfLines={1}>{c.personName.split(' ')[0]}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          )}
 
           {/* Recent */}
           <View style={styles.sectionHeader}>
@@ -190,5 +219,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: typography.heading,
   seeAll: { color: colors.primary, fontWeight: '600', fontSize: 14 },
+  favRow: { gap: spacing.lg, paddingVertical: spacing.xs, paddingRight: spacing.lg },
+  favItem: { alignItems: 'center', width: 64 },
+  favName: { fontSize: 12, color: colors.text, marginTop: 6, fontWeight: '500' },
   group: { backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', ...shadow },
 });
