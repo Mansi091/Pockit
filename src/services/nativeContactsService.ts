@@ -8,12 +8,12 @@ import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone, type Em
 /**
  * Saves a Pockit contact into the phone's own Contacts app (expo-contacts).
  *
- * We open Android's native "Create contact" screen pre-filled with the card's
- * details instead of writing silently. The user sees exactly what will be
- * saved, picks WHICH account to save to (e.g. their Google account, so it
- * also syncs to contacts.google.com and their other devices), and taps Save.
- * Afterwards we look the new entry up to remember its id (native_contact_id),
- * so the profile can show "Saved to phone" and open it later.
+ * Default: one-tap direct save (the user tapped "Save to Phone Contacts" —
+ * that is the confirmation). It goes to the phone's default contacts account;
+ * Android doesn't let apps pick the account here. The new contact's id is kept
+ * (native_contact_id) so the profile can show "Saved to Phone · Open".
+ * Alternative: `reviewInPhoneContactsForm` opens Android's own pre-filled form,
+ * where the user can choose the account (some Contacts apps drop the name there).
  */
 
 const splitList = (s: string | null) =>
@@ -69,25 +69,45 @@ async function findCreatedId(c: Contact): Promise<string | null> {
 
 export type SaveToPhoneResult = { status: 'saved'; nativeId: string | null } | { status: 'cancelled' | 'denied' };
 
+/** Makes a square "whole card on white" photo; provided by <CardPhotoComposer> on the screen. */
+export type ComposePhoto = (cardUri: string) => Promise<string | null>;
+
 /**
- * Small copy of the saved card image to attach as the phone contact's photo.
- * Returns undefined (save without a photo) if there is no image or it can't be prepared.
+ * Photo for the phone contact: the whole card centred on a white square when
+ * the composer is available, otherwise a plain downsized copy of the card.
+ * Returns undefined (save without a photo) if there is no card image.
  */
-async function cardPhotoFor(c: Contact): Promise<string | undefined> {
+async function cardPhotoFor(c: Contact, compose?: ComposePhoto): Promise<string | undefined> {
   if (!imageExists(c.cardImagePath)) return undefined;
   try {
-    return await prepareContactPhoto(c.cardImagePath!);
+    const composed = compose ? await compose(c.cardImagePath!) : null;
+    return composed ?? (await prepareContactPhoto(c.cardImagePath!));
   } catch {
     return undefined;
   }
 }
 
-export async function saveToPhoneContacts(c: Contact): Promise<SaveToPhoneResult> {
-  if (!(await ensurePermission())) return { status: 'denied' };
+async function buildRecord(c: Contact, compose?: ComposePhoto): Promise<CreateContactRecord> {
   const [phones, emails] = await Promise.all([findPhones(c.id), findEmails(c.id)]);
-  // The business card image goes in automatically as the contact's photo.
-  const record: CreateContactRecord = { ...toPhoneRecord(c, phones, emails), image: await cardPhotoFor(c) };
-  const created = await PhoneContact.presentCreateForm(record);
+  return { ...toPhoneRecord(c, phones, emails), image: await cardPhotoFor(c, compose) };
+}
+
+/**
+ * One-tap save straight into the phone's Contacts (default account).
+ * Name, company, title, labelled numbers, emails, website, address and the card
+ * photo are all written directly — some Contacts apps ignore the name when it's
+ * passed through the "Create contact" form, so direct save is the reliable path.
+ */
+export async function saveToPhoneContacts(c: Contact, compose?: ComposePhoto): Promise<SaveToPhoneResult> {
+  if (!(await ensurePermission())) return { status: 'denied' };
+  const created = await PhoneContact.create(await buildRecord(c, compose));
+  return { status: 'saved', nativeId: created.id };
+}
+
+/** Alternative: open Android's own "Create contact" form pre-filled (lets the user pick the account). */
+export async function reviewInPhoneContactsForm(c: Contact, compose?: ComposePhoto): Promise<SaveToPhoneResult> {
+  if (!(await ensurePermission())) return { status: 'denied' };
+  const created = await PhoneContact.presentCreateForm(await buildRecord(c, compose));
   if (!created) return { status: 'cancelled' };
   let nativeId: string | null = null;
   try {
@@ -114,9 +134,9 @@ export async function phoneContactExists(nativeId: string): Promise<boolean> {
  * Puts the card image on a contact that was saved to the phone earlier
  * (e.g. before this feature existed). Returns false if there's no card image.
  */
-export async function attachCardPhotoToPhoneContact(nativeId: string, c: Contact): Promise<boolean> {
+export async function attachCardPhotoToPhoneContact(nativeId: string, c: Contact, compose?: ComposePhoto): Promise<boolean> {
   if (!(await ensurePermission())) return false;
-  const photo = await cardPhotoFor(c);
+  const photo = await cardPhotoFor(c, compose);
   if (!photo) return false;
   return new PhoneContact(nativeId).setImage(photo);
 }

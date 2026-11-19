@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="#4F46E5"/>
+  <!-- card peeking out of the wallet -->
+  <rect x="318" y="262" width="388" height="250" rx="40" fill="#C7D2FE" transform="rotate(-8 512 387)"/>
+  <rect x="352" y="318" width="150" height="26" rx="13" fill="#4F46E5" opacity="0.55" transform="rotate(-8 512 387)"/>
+  <!-- wallet body -->
+  <rect x="236" y="400" width="552" height="372" rx="80" fill="#FFFFFF"/>
+  <!-- clasp -->
+  <rect x="604" y="530" width="220" height="116" rx="58" fill="#EEF2FF"/>
+  <circle cx="664" cy="588" r="24" fill="#4F46E5"/>
+</svg>

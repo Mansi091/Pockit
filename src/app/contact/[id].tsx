@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -7,6 +7,7 @@ import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
+import CardPhotoComposer, { type CardPhotoComposerHandle } from '@/components/CardPhotoComposer';
 import { deleteContact, getContactDetails, linkNativeContact } from '@/services/contactService';
 import { attachCardPhotoToPhoneContact, openPhoneContact, phoneContactExists, saveToPhoneContacts } from '@/services/nativeContactsService';
 import { useContactsVersion } from '@/services/dataEvents';
@@ -22,6 +23,9 @@ export default function ContactProfileScreen() {
   const [phones, setPhones] = useState<ContactPhone[]>([]);
   const [emails, setEmails] = useState<ContactEmail[]>([]);
   const [savingToPhone, setSavingToPhone] = useState(false);
+  const composerRef = useRef<CardPhotoComposerHandle>(null);
+  // Square "whole card on white" photo for the phone's Contacts app (null → plain photo).
+  const compose = (uri: string) => composerRef.current?.compose(uri) ?? Promise.resolve(null);
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +88,7 @@ export default function ContactProfileScreen() {
             {
               text: 'Add card photo',
               onPress: async () => {
-                const ok = await attachCardPhotoToPhoneContact(nativeId, contact).catch(() => false);
+                const ok = await attachCardPhotoToPhoneContact(nativeId, contact, compose).catch(() => false);
                 Alert.alert(ok ? 'Card photo added' : 'Could not add the photo', ok ? 'The phone contact now shows this card.' : 'Please try again.');
               },
             },
@@ -94,12 +98,19 @@ export default function ContactProfileScreen() {
         }
         await linkNativeContact(contact.id, null); // was deleted from the phone; fall through to re-save
       }
-      const result = await saveToPhoneContacts(contact);
+      const result = await saveToPhoneContacts(contact, compose);
       if (result.status === 'saved') {
-        if (result.nativeId) await linkNativeContact(contact.id, result.nativeId);
+        const nativeId = result.nativeId;
+        if (nativeId) await linkNativeContact(contact.id, nativeId);
         Alert.alert(
           'Saved to phone',
           `${contact.personName} is now in your phone's contacts${contact.cardImagePath ? ', with the card as their photo' : ''}.`,
+          nativeId
+            ? [
+                { text: 'Done', style: 'cancel' },
+                { text: 'Open in Contacts', onPress: () => openPhoneContact(nativeId) },
+              ]
+            : undefined,
         );
       }
     } catch (e) {
@@ -192,6 +203,7 @@ export default function ContactProfileScreen() {
         />
         <CustomButton title="Delete Contact" icon="trash-outline" variant="danger" onPress={onDelete} />
       </View>
+      <CardPhotoComposer ref={composerRef} />
     </ScrollView>
   );
 }
