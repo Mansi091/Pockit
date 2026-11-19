@@ -60,6 +60,9 @@ export async function prepareContactPhoto(uri: string): Promise<string> {
   return (await prepareImage(uri, { ...size, maxDimension: 720, compress: 0.85 })).uri;
 }
 
+/** File-name suffix for a card's reverse side: <contactId>_back.jpg (matches the cloud path, see sync/tables.ts). */
+export const BACK_SUFFIX = '_back';
+
 /** Copies a working image into permanent storage for a contact. Returns the stored URI. */
 export async function persistCardImage(userId: string, sourceUri: string, contactId: string): Promise<string> {
   const dest = new File(cardsDir(userId), `${contactId}.jpg`);

@@ -7,11 +7,15 @@ import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
+import OptionSheet from '@/components/OptionSheet';
 import CardPhotoComposer, { type CardPhotoComposerHandle } from '@/components/CardPhotoComposer';
 import { deleteContact, getContactDetails, linkNativeContact, setFavourite } from '@/services/contactService';
 import { getCategories, type CategoryWithCount } from '@/services/categoryService';
 import { attachCardPhotoToPhoneContact, openPhoneContact, phoneContactExists, saveToPhoneContacts } from '@/services/nativeContactsService';
 import { useContactsVersion } from '@/services/dataEvents';
+import { CAPTURE_LABEL, captureCard, captureSources, type CaptureSource } from '@/services/cardCapture';
+import { ScannerUnavailableError } from '@/services/documentScannerService';
+import { scanSession } from '@/services/scanSession';
 import { dialString, formatPhone } from '@/utils/phone';
 import { flagOf } from '@/data/countries';
 import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone } from '@/types/contact';
@@ -25,6 +29,8 @@ export default function ContactProfileScreen() {
   const [emails, setEmails] = useState<ContactEmail[]>([]);
   const [contactCategories, setContactCategories] = useState<CategoryWithCount[]>([]);
   const [savingToPhone, setSavingToPhone] = useState(false);
+  const [backSheet, setBackSheet] = useState(false);
+  const [capturingBack, setCapturingBack] = useState(false);
   const composerRef = useRef<CardPhotoComposerHandle>(null);
   // Square "whole card on white" photo for the phone's Contacts app (null → plain photo).
   const compose = (uri: string) => composerRef.current?.compose(uri) ?? Promise.resolve(null);
@@ -62,6 +68,30 @@ export default function ContactProfileScreen() {
   const phone = phones[0] ? dialString(phones[0]) : null;
   const email = emails[0]?.address ?? null;
   const whatsappUrl = (p: ContactPhone) => `https://wa.me/${(p.e164 ?? p.nationalNumber).replace(/\D/g, '')}`;
+
+  // P11: capture the back → read it → review screen merges it into this contact.
+  const addBackSide = async (from: CaptureSource) => {
+    setCapturingBack(true);
+    try {
+      const img = await captureCard(from);
+      if (!img) return;
+      scanSession.startBackOnly(contact.id, img);
+      router.push('/processing');
+    } catch (e) {
+      if (e instanceof ScannerUnavailableError) {
+        Alert.alert('Automatic scan unavailable', `${e.message}
+
+You can take a photo and crop it to the card instead.`, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take photo', onPress: () => addBackSide('camera') },
+        ]);
+      } else {
+        Alert.alert('Could not use this image', e instanceof Error ? e.message : 'Please try again.');
+      }
+    } finally {
+      setCapturingBack(false);
+    }
+  };
 
   const open = async (url: string) => {
     try {
@@ -210,9 +240,27 @@ export default function ContactProfileScreen() {
       </View>
 
       <Text style={styles.sectionTitle}>Original card</Text>
-      <View style={{ marginHorizontal: spacing.lg }}>
+      <View style={{ marginHorizontal: spacing.lg, gap: spacing.sm }}>
         <ImagePreview uri={contact.cardImagePath} height={200} emptyText="No card image saved" />
+        {contact.cardBackImagePath ? (
+          <View>
+            <ImagePreview uri={contact.cardBackImagePath} height={170} />
+            <View style={styles.sideBadge}>
+              <Text style={styles.sideBadgeText}>Back</Text>
+            </View>
+          </View>
+        ) : (
+          <CustomButton title="Add back side" icon="add-circle-outline" variant="ghost" onPress={() => setBackSheet(true)} loading={capturingBack} />
+        )}
       </View>
+      <OptionSheet
+        visible={backSheet}
+        title="Add the back side"
+        options={captureSources()}
+        labelOf={(o) => CAPTURE_LABEL[o]}
+        onSelect={(o) => setTimeout(() => addBackSide(o), 250) /* let the sheet close first */}
+        onClose={() => setBackSheet(false)}
+      />
 
       <Text style={styles.meta}>
         Added {new Date(contact.createdAt).toLocaleDateString()}
@@ -337,5 +385,15 @@ const styles = StyleSheet.create({
   detailEmpty: { color: colors.textMuted, fontStyle: 'italic' },
   sectionTitle: { ...typography.heading, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
   meta: { ...typography.caption, marginHorizontal: spacing.lg, marginTop: spacing.sm },
+  sideBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  sideBadgeText: { fontSize: 12, fontWeight: '600', color: colors.primaryDark },
   actions: { gap: spacing.sm, margin: spacing.lg },
 });

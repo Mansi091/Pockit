@@ -1,61 +1,69 @@
 import { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import FormError from '@/components/FormError';
-import { pickFromGalleryAndCrop, takePhotoAndCrop, type PickedImage } from '@/services/cameraService';
-import { isDocumentScannerAvailable, scanCardAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';
+import OptionSheet from '@/components/OptionSheet';
+import { isDocumentScannerAvailable, ScannerUnavailableError } from '@/services/documentScannerService';
+import { CAPTURE_LABEL, captureCard, captureSources, type CaptureSource, type CardImage } from '@/services/cardCapture';
 import { prepareImage } from '@/services/imageService';
 import { scanSession } from '@/services/scanSession';
 import { isOcrAvailable } from '@/services/ocrService';
 
-type Source = 'auto' | 'camera' | 'gallery';
+type Side = 'front' | 'back';
+type Busy = `${Side}:${CaptureSource | 'rotate'}` | null;
 
 /**
  * Screen 2 – Scan Business Card.
  *  - Automatic (development build): Google ML Kit Document Scanner finds the card's
  *    corners, crops, straightens and enhances it; its own screen handles adjust/retake.
  *  - Manual fallback (Expo Go, or if auto fails): system camera / gallery → crop screen.
- * The preview always shows the image that will be saved with the contact.
+ *  - P11: optional back side. Both sides are read; the front wins on conflicts.
+ * The previews always show the images that will be saved with the contact.
  */
 export default function ScanScreen() {
   const autoAvailable = isDocumentScannerAvailable();
-  const [image, setImage] = useState(scanSession.get().image);
-  const [source, setSource] = useState<Source | null>(null);
-  const [busy, setBusy] = useState<Source | 'rotate' | null>(null);
+  const [front, setFront] = useState<CardImage | null>(scanSession.get().image);
+  const [back, setBack] = useState<CardImage | null>(scanSession.get().back);
+  const [source, setSource] = useState<CaptureSource | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [backSheet, setBackSheet] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      setImage(scanSession.get().image);
+      const s = scanSession.get();
+      if (s.targetContactId) scanSession.clear(); // leftover "add back side" flow — start fresh
+      setFront(scanSession.get().image);
+      setBack(scanSession.get().back);
     }, []),
   );
 
-  const accept = async (picked: PickedImage, from: Source) => {
-    // Normalise: bake in orientation, cap size, JPEG — the working copy used for OCR and saving.
-    const prepared = await prepareImage(picked.uri, { width: picked.width, height: picked.height });
-    scanSession.setImage(prepared);
-    setImage(prepared);
-    setSource(from);
+  const store = (side: Side, img: CardImage | null) => {
+    if (side === 'front') {
+      scanSession.setImage(img);
+      setFront(img);
+    } else {
+      scanSession.setBack(img);
+      setBack(img);
+    }
   };
 
-  const run = async (from: Source) => {
-    setBusy(from);
+  const run = async (side: Side, from: CaptureSource) => {
+    setBusy(`${side}:${from}`);
     try {
-      if (from === 'auto') {
-        const scanned = await scanCardAutomatically();
-        if (scanned) await accept(scanned, 'auto');
-      } else {
-        const picked = from === 'camera' ? await takePhotoAndCrop() : await pickFromGalleryAndCrop();
-        if (picked) await accept(picked, from);
+      const img = await captureCard(from);
+      if (img) {
+        store(side, img);
+        if (side === 'front') setSource(from);
       }
     } catch (e) {
       if (e instanceof ScannerUnavailableError) {
         Alert.alert('Automatic scan unavailable', `${e.message}\n\nYou can take a photo and crop it to the card instead.`, [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Take photo', onPress: () => run('camera') },
+          { text: 'Take photo', onPress: () => run(side, 'camera') },
         ]);
       } else {
         Alert.alert('Could not use this image', e instanceof Error ? e.message : 'Please try again.');
@@ -65,42 +73,105 @@ export default function ScanScreen() {
     }
   };
 
-  const onRotate = async () => {
-    if (!image) return;
-    setBusy('rotate');
+  const rotate = async (side: Side) => {
+    const img = side === 'front' ? front : back;
+    if (!img) return;
+    setBusy(`${side}:rotate`);
     try {
-      const rotated = await prepareImage(image.uri, { rotate: 90, width: image.width, height: image.height });
-      scanSession.setImage(rotated);
-      setImage(rotated);
+      store(side, await prepareImage(img.uri, { rotate: 90, width: img.width, height: img.height }));
     } finally {
       setBusy(null);
     }
   };
 
-  const onRetake = () => {
-    scanSession.clear();
-    setImage(null);
-    if (source) run(source);
+  const onRetakeFront = () => {
+    setFront(null);
+    if (source) run('front', source);
   };
 
-  const smallImage = !!image && Math.max(image.width, image.height) < 700;
+  const onSwap = () => {
+    const f = front;
+    const b = back;
+    if (!f || !b) return;
+    scanSession.setImage(b);
+    scanSession.setBack(f);
+    setFront(b);
+    setBack(f);
+  };
+
+  const smallImage = !!front && Math.max(front.width, front.height) < 700;
 
   // ── Preview ────────────────────────────────────────────────────────
-  if (image) {
+  if (front) {
     return (
       <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Check the card</Text>
         <Text style={styles.subtitle}>Only the card should be visible, with all text sharp.</Text>
 
         <View style={styles.preview}>
-          <ImagePreview uri={image.uri} height={220} />
-          {source && (
+          <ImagePreview uri={front.uri} height={200} />
+          <View style={styles.badges}>
             <View style={styles.badge}>
-              <Ionicons name={source === 'auto' ? 'sparkles' : 'crop'} size={13} color={colors.primaryDark} />
-              <Text style={styles.badgeText}>{source === 'auto' ? 'Auto-cropped' : 'Cropped manually'}</Text>
+              <Text style={styles.badgeText}>Front</Text>
             </View>
-          )}
+            {source && (
+              <View style={styles.badge}>
+                <Ionicons name={source === 'auto' ? 'sparkles' : 'crop'} size={12} color={colors.primaryDark} />
+                <Text style={styles.badgeText}>{source === 'auto' ? 'Auto-cropped' : 'Cropped'}</Text>
+              </View>
+            )}
+          </View>
         </View>
+        <View style={styles.row}>
+          <CustomButton title="Rotate" icon="refresh" variant="outline" onPress={() => rotate('front')} loading={busy === 'front:rotate'} disabled={!!busy} style={styles.half} />
+          <CustomButton
+            title={source === 'auto' ? 'Rescan' : 'Retake'}
+            icon="camera-reverse-outline"
+            variant="outline"
+            onPress={onRetakeFront}
+            disabled={!!busy}
+            style={styles.half}
+          />
+        </View>
+        {source === 'auto' && (
+          <CustomButton title="Not right? Crop it myself" icon="crop" variant="ghost" onPress={() => run('front', 'camera')} disabled={!!busy} />
+        )}
+
+        {/* Back side (optional) */}
+        <Text style={styles.sectionLabel}>Back side · optional</Text>
+        {back ? (
+          <>
+            <View>
+              <ImagePreview uri={back.uri} height={160} />
+              <View style={styles.badges}>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>Back</Text>
+                </View>
+              </View>
+            </View>
+            <View style={[styles.row, { marginTop: spacing.sm }]}>
+              <SmallAction icon="refresh" label="Rotate" onPress={() => rotate('back')} disabled={!!busy} />
+              <SmallAction icon="camera-reverse-outline" label="Replace" onPress={() => setBackSheet(true)} disabled={!!busy} />
+              <SmallAction icon="swap-vertical" label="Swap sides" onPress={onSwap} disabled={!!busy} />
+              <SmallAction icon="trash-outline" label="Remove" danger onPress={() => store('back', null)} disabled={!!busy} />
+            </View>
+          </>
+        ) : (
+          <Pressable
+            onPress={() => setBackSheet(true)}
+            disabled={!!busy}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addBack, pressed && { opacity: 0.85 }]}
+          >
+            <View style={styles.addBackIcon}>
+              <Ionicons name={busy?.startsWith('back') ? 'hourglass-outline' : 'add'} size={22} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.addBackTitle}>Add back side</Text>
+              <Text style={styles.addBackSub}>Extra numbers or an address on the back? Pockit reads both sides.</Text>
+            </View>
+          </Pressable>
+        )}
 
         {smallImage && (
           <FormError tone="info" message="This image is quite small, so some text may not be read. A closer photo works best." />
@@ -110,22 +181,22 @@ export default function ScanScreen() {
         )}
 
         <View style={styles.actions}>
-          <CustomButton title="Use this card" icon="arrow-forward" onPress={() => router.push('/processing')} disabled={!!busy} />
-          <View style={styles.row}>
-            <CustomButton title="Rotate" icon="refresh" variant="outline" onPress={onRotate} loading={busy === 'rotate'} style={styles.half} />
-            <CustomButton
-              title={source === 'auto' ? 'Rescan' : 'Retake'}
-              icon="camera-reverse-outline"
-              variant="outline"
-              onPress={onRetake}
-              disabled={!!busy}
-              style={styles.half}
-            />
-          </View>
-          {source === 'auto' && (
-            <CustomButton title="Not right? Crop it myself" icon="crop" variant="ghost" onPress={() => run('camera')} disabled={!!busy} />
-          )}
+          <CustomButton
+            title={back ? 'Read both sides' : 'Use this card'}
+            icon="arrow-forward"
+            onPress={() => router.push('/processing')}
+            disabled={!!busy}
+          />
         </View>
+
+        <OptionSheet
+          visible={backSheet}
+          title={back ? 'Replace the back side' : 'Add the back side'}
+          options={captureSources()}
+          labelOf={(o) => CAPTURE_LABEL[o]}
+          onSelect={(o) => setTimeout(() => run('back', o), 250) /* let the sheet close first */}
+          onClose={() => setBackSheet(false)}
+        />
       </ScrollView>
     );
   }
@@ -136,8 +207,8 @@ export default function ScanScreen() {
       <Text style={styles.title}>Add a business card</Text>
       <Text style={styles.subtitle}>
         {autoAvailable
-          ? 'Pockit finds the card, crops away the background and straightens it for you.'
-          : 'Take or pick a photo, then crop it so only the card is left.'}
+          ? 'Pockit finds the card, crops away the background and straightens it for you. Start with the front.'
+          : 'Take or pick a photo of the front, then crop it so only the card is left.'}
       </Text>
 
       <View style={styles.illustration}>
@@ -156,13 +227,13 @@ export default function ScanScreen() {
       <View style={styles.actions}>
         {autoAvailable ? (
           <>
-            <CustomButton title="Scan card" icon="scan" onPress={() => run('auto')} loading={busy === 'auto'} disabled={!!busy} />
-            <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('camera')} loading={busy === 'camera'} disabled={!!busy} />
+            <CustomButton title="Scan card" icon="scan" onPress={() => run('front', 'auto')} loading={busy === 'front:auto'} disabled={!!busy} />
+            <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
           </>
         ) : (
-          <CustomButton title="Take photo" icon="camera-outline" onPress={() => run('camera')} loading={busy === 'camera'} disabled={!!busy} />
+          <CustomButton title="Take photo" icon="camera-outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
         )}
-        <CustomButton title="Choose from gallery" icon="images-outline" variant="outline" onPress={() => run('gallery')} loading={busy === 'gallery'} disabled={!!busy} />
+        <CustomButton title="Choose from gallery" icon="images-outline" variant="outline" onPress={() => run('front', 'gallery')} loading={busy === 'front:gallery'} disabled={!!busy} />
         <CustomButton
           title="Enter details manually"
           icon="create-outline"
@@ -177,16 +248,42 @@ export default function ScanScreen() {
   );
 }
 
+function SmallAction({
+  icon,
+  label,
+  onPress,
+  disabled,
+  danger,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  const color = danger ? colors.danger : colors.text;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.smallAction, (pressed || disabled) && { opacity: 0.6 }]}
+    >
+      <Ionicons name={icon} size={18} color={color} />
+      <Text style={[styles.smallActionText, { color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   title: typography.title,
   subtitle: { ...typography.body, color: colors.textMuted, marginTop: spacing.xs, lineHeight: 22 },
-  preview: { marginVertical: spacing.xl },
+  preview: { marginTop: spacing.lg, marginBottom: spacing.sm },
+  badges: { position: 'absolute', top: spacing.sm, left: spacing.sm, flexDirection: 'row', gap: 6 },
   badge: {
-    position: 'absolute',
-    top: spacing.sm,
-    left: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -196,6 +293,39 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   badgeText: { fontSize: 12, fontWeight: '600', color: colors.primaryDark },
+  sectionLabel: { ...typography.label, marginTop: spacing.lg, marginBottom: spacing.sm },
+  addBack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  addBackIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBackTitle: { fontSize: 15, fontWeight: '700', color: colors.primaryDark },
+  addBackSub: { fontSize: 13, color: colors.textMuted, marginTop: 2, lineHeight: 18 },
+  smallAction: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  smallActionText: { fontSize: 12, fontWeight: '600' },
   illustration: { alignItems: 'center', marginVertical: spacing.xxl },
   cardShape: {
     width: 220,
@@ -208,7 +338,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  actions: { gap: spacing.sm, marginTop: spacing.lg },
   row: { flexDirection: 'row', gap: spacing.sm },
   half: { flex: 1 },
 });

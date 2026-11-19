@@ -114,6 +114,8 @@ export interface ContactInput {
   website: string | null;
   address: string | null;
   cardImagePath: string | null;
+  /** P11 reverse side. Omitted on update = leave unchanged; null = remove. */
+  cardBackImagePath?: string | null;
   rawOcrText: string | null;
   /** P10. Omitted on update = leave unchanged. */
   categoryIds?: string[];

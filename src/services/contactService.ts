@@ -3,7 +3,7 @@ import * as repo from '@/database/contactRepository';
 import { getCurrentUserId, getDb } from '@/database/db';
 import * as structured from '@/database/structuredRepository';
 import * as categories from '@/database/categoryRepository';
-import { deleteImage, persistCardImage } from '@/services/imageService';
+import { BACK_SUFFIX, deleteImage, persistCardImage } from '@/services/imageService';
 import { emitContactsChanged } from '@/services/dataEvents';
 import { requestSync } from '@/services/syncService';
 import { draftToRowValues, formatPhone, phoneMatchKey } from '@/utils/phone';
@@ -54,6 +54,7 @@ export function cleanInput(input: ContactInput): CleanInput {
     website: t(input.website),
     address: t(input.address),
     cardImagePath: input.cardImagePath,
+    cardBackImagePath: input.cardBackImagePath,
     rawOcrText: t(input.rawOcrText),
     categoryIds: input.categoryIds,
     isFavourite: input.isFavourite,
@@ -141,6 +142,9 @@ export async function createContact(input: ContactInput): Promise<Contact> {
   const id = randomUUID();
   const ts = new Date().toISOString();
   const cardImagePath = data.cardImagePath ? await persistCardImage(getCurrentUserId(), data.cardImagePath, id) : null;
+  const cardBackImagePath = data.cardBackImagePath
+    ? await persistCardImage(getCurrentUserId(), data.cardBackImagePath, `${id}${BACK_SUFFIX}`)
+    : null;
   const contact: Contact = {
     id,
     personName: data.personName,
@@ -153,7 +157,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
     nativeContactId: null,
     rawOcrText: data.rawOcrText,
     isFavourite: !!data.isFavourite,
-    cardBackImagePath: null,
+    cardBackImagePath,
     createdAt: ts,
     updatedAt: ts,
   };
@@ -166,7 +170,8 @@ export async function createContact(input: ContactInput): Promise<Contact> {
       if (data.categoryIds?.length) await categories.setContactCategories(id, data.categoryIds, ts);
     });
   } catch (e) {
-    deleteImage(cardImagePath); // don't leave an orphaned file behind
+    deleteImage(cardImagePath); // don't leave orphaned files behind
+    deleteImage(cardBackImagePath);
     throw e;
   }
   changed();
@@ -185,6 +190,15 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     cardImagePath = data.cardImagePath ? await persistCardImage(getCurrentUserId(), data.cardImagePath, id) : null;
     if (!cardImagePath) deleteImage(existing.cardImagePath);
   }
+  // Back side: undefined = untouched, null = removed, string = new/kept image.
+  let cardBackImagePath = existing.cardBackImagePath;
+  const backChanged = data.cardBackImagePath !== undefined && data.cardBackImagePath !== existing.cardBackImagePath;
+  if (backChanged) {
+    cardBackImagePath = data.cardBackImagePath
+      ? await persistCardImage(getCurrentUserId(), data.cardBackImagePath, `${id}${BACK_SUFFIX}`)
+      : null;
+    if (!cardBackImagePath) deleteImage(existing.cardBackImagePath);
+  }
   const now = new Date().toISOString();
   const updated: Contact = {
     ...existing,
@@ -197,10 +211,11 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     rawOcrText: data.rawOcrText,
     isFavourite: data.isFavourite ?? existing.isFavourite,
     cardImagePath,
+    cardBackImagePath,
     updatedAt: now,
   };
   await getDb().withTransactionAsync(async () => {
-    await repo.updateContactRow(updated, imageChanged);
+    await repo.updateContactRow(updated, imageChanged, backChanged);
     await structured.replacePhones(id, data.phones, now);
     await structured.replaceEmails(id, data.emails, now);
     if (data.categoryIds) await categories.setContactCategories(id, data.categoryIds, now);

@@ -7,80 +7,124 @@ import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import { OcrUnavailableError, recognizeText } from '@/services/ocrService';
 import { extractContact } from '@/services/extractionService';
+import { draftFromExtraction, joinOcrText, mergeBackSide } from '@/services/cardMerge';
 import { scanSession } from '@/services/scanSession';
-import { splitLegacyList, textToPhoneDrafts } from '@/utils/phone';
-import type { ContactInput, ExtractionResult, OcrResult } from '@/types/contact';
+import type { ContactField, ExtractionResult, OcrResult } from '@/types/contact';
 
 type Status = 'running' | 'done' | 'error';
 
+interface SideResult {
+  ocr: OcrResult | null;
+  extraction: ExtractionResult | null;
+}
+
+const read = async (img: { uri: string; width: number; height: number }): Promise<SideResult> => {
+  const ocr = await recognizeText(img.uri, img);
+  return { ocr, extraction: ocr.text.trim() ? extractContact(ocr) : null };
+};
+
 /**
  * Screen 3 – Image Processing and OCR (+ Screen 4's extraction step).
- * Runs ML Kit on-device, shows progress/errors and the raw text, extracts
- * structured fields, then hands a draft to the review screen.
+ * Runs ML Kit on-device for the front and (P11) the optional back side,
+ * merges them (front wins), then hands a draft to the review screen.
+ * Back-only mode: adding a back side to an existing contact (targetContactId).
  */
 export default function ProcessingScreen() {
-  const image = scanSession.get().image;
+  const { image, back, targetContactId } = scanSession.get();
+  const primary = image ?? back; // what must be readable for this screen to succeed
   const [status, setStatus] = useState<Status>('running');
+  const [step, setStep] = useState<'front' | 'back'>(image ? 'front' : 'back');
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [ocr, setOcr] = useState<OcrResult | null>(null);
-  const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
+  const [frontResult, setFrontResult] = useState<SideResult | null>(null);
+  const [backResult, setBackResult] = useState<SideResult | null>(null);
+  const [backFailed, setBackFailed] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
   const run = useCallback(async () => {
-    if (!image) {
+    if (!primary) {
       setStatus('error');
       setError('No image was selected.');
       return;
     }
     setStatus('running');
     setError(null);
+    setBackFailed(false);
     try {
-      const result = await recognizeText(image.uri, image);
-      setOcr(result);
-      setExtraction(result.text.trim() ? extractContact(result) : null);
+      if (image) {
+        setStep('front');
+        setFrontResult(await read(image));
+      }
+      if (back) {
+        setStep('back');
+        try {
+          setBackResult(await read(back));
+        } catch (e) {
+          if (!image) throw e; // back-only mode: the back IS the scan
+          if (e instanceof OcrUnavailableError) throw e;
+          setBackFailed(true); // the front was read; carry on without the back's text
+        }
+      }
       setStatus('done');
     } catch (e) {
       setStatus('error');
       setUnavailable(e instanceof OcrUnavailableError);
       setError(e instanceof Error ? e.message : 'Text recognition failed.');
     }
-  }, [image]);
+  }, [image, back, primary]);
 
   useEffect(() => {
     run();
   }, [run]);
 
   const goToReview = () => {
-    const fields = extraction?.fields;
-    const draft: ContactInput = {
-      personName: fields?.personName ?? '',
-      companyName: fields?.companyName ?? null,
-      designation: fields?.designation ?? null,
-      phones: textToPhoneDrafts(fields?.phone),
-      emails: splitLegacyList(fields?.email).map((address, i) => ({ label: i === 0 ? 'work' : 'personal', address })),
-      website: fields?.website ?? null,
-      address: fields?.address ?? null,
-      cardImagePath: image?.uri ?? null,
-      rawOcrText: ocr?.text || null,
-    };
-    scanSession.setResult(ocr, draft, extraction?.lowConfidence ?? []);
+    const backDraft = draftFromExtraction(backResult?.extraction?.fields, null, backResult?.ocr?.text);
+    backDraft.cardBackImagePath = back?.uri ?? null;
+
+    if (targetContactId) {
+      // Existing contact: the review screen merges this into the saved details.
+      scanSession.setResult(backResult?.ocr ?? null, backDraft, backResult?.extraction?.lowConfidence ?? []);
+      router.replace({ pathname: '/review-contact', params: { id: targetContactId, addBack: '1' } });
+      return;
+    }
+
+    const frontDraft = draftFromExtraction(frontResult?.extraction?.fields, image?.uri ?? null, frontResult?.ocr?.text);
+    const { merged, added } = mergeBackSide(frontDraft, backDraft);
+    merged.cardBackImagePath = back?.uri ?? null;
+    const low = new Set<ContactField>(frontResult?.extraction?.lowConfidence ?? []);
+    for (const f of backResult?.extraction?.lowConfidence ?? []) if (added.includes(f)) low.add(f);
+    const ocr: OcrResult | null = frontResult?.ocr ?? backResult?.ocr ?? null;
+    scanSession.setResult(ocr && { ...ocr, text: merged.rawOcrText ?? '' }, merged, [...low]);
     router.replace('/review-contact');
   };
 
-  const found = extraction
-    ? Object.entries(extraction.fields).filter(([, v]) => !!v).length
-    : 0;
-  const empty = status === 'done' && !ocr?.text.trim();
+  const lines = (frontResult?.ocr?.lines.length ?? 0) + (backResult?.ocr?.lines.length ?? 0);
+  const countFields = (r: SideResult | null) => (r?.extraction ? Object.values(r.extraction.fields).filter(Boolean).length : 0);
+  // Fields found overall: the front's, plus what the back adds (or the back's alone in back-only mode).
+  const found = image
+    ? countFields(frontResult) +
+      mergeBackSide(
+        draftFromExtraction(frontResult?.extraction?.fields, null, null),
+        draftFromExtraction(backResult?.extraction?.fields, null, null),
+      ).added.length
+    : countFields(backResult);
+  const rawText = joinOcrText(frontResult?.ocr?.text, backResult?.ocr?.text) ?? '';
+  const empty = status === 'done' && !rawText.trim();
+  const rotation = frontResult?.ocr?.rotation ?? backResult?.ocr?.rotation;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <ImagePreview uri={image?.uri} height={180} />
+      <View style={styles.images}>
+        {image && <ImagePreview uri={image.uri} height={back ? 130 : 180} />}
+        {back && <ImagePreview uri={back.uri} height={130} />}
+      </View>
 
       {status === 'running' && (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={styles.statusText}>Reading text on your phone…</Text>
+          <Text style={styles.statusText}>
+            {image && back ? `Reading the ${step} side…` : 'Reading text on your phone…'}
+          </Text>
         </View>
       )}
 
@@ -104,9 +148,15 @@ export default function ProcessingScreen() {
             <Text style={styles.bannerText}>
               {empty
                 ? 'No readable text was found. Try a sharper, well-lit photo, or enter the details manually.'
-                : `Read ${ocr!.lines.length} line(s) and identified ${found} field(s)${ocr!.rotation ? ` (image was rotated ${ocr!.rotation}°)` : ''}. You'll review everything next.`}
+                : `Read ${lines} line(s)${image && back ? ' from both sides' : ''}${found ? ` and identified ${found} field(s)` : ''}${rotation ? ` (image was rotated ${rotation}°)` : ''}. You'll review everything next.`}
             </Text>
           </View>
+          {backFailed && (
+            <View style={styles.banner}>
+              <Ionicons name="information-circle-outline" size={22} color={colors.warning} />
+              <Text style={styles.bannerText}>The back side couldn't be read, but its image will still be saved.</Text>
+            </View>
+          )}
           {!empty && (
             <>
               <CustomButton
@@ -118,7 +168,7 @@ export default function ProcessingScreen() {
               {showRaw && (
                 <View style={styles.rawBox}>
                   <Text style={styles.rawText} selectable>
-                    {ocr!.text}
+                    {rawText}
                   </Text>
                 </View>
               )}
@@ -129,12 +179,18 @@ export default function ProcessingScreen() {
 
       <View style={styles.actions}>
         {status === 'done' && (
-          <CustomButton title={empty ? 'Enter details manually' : 'Continue to Review'} icon="arrow-forward" onPress={goToReview} />
+          <CustomButton
+            title={empty ? (targetContactId ? 'Save the image anyway' : 'Enter details manually') : 'Continue to Review'}
+            icon="arrow-forward"
+            onPress={goToReview}
+          />
         )}
         {status === 'error' && (
           <>
-            {!!image && <CustomButton title="Enter details manually" icon="create-outline" onPress={goToReview} />}
-            {!!image && !unavailable && <CustomButton title="Try again" icon="refresh" variant="outline" onPress={run} />}
+            {!!primary && (
+              <CustomButton title={targetContactId ? 'Save the image anyway' : 'Enter details manually'} icon="create-outline" onPress={goToReview} />
+            )}
+            {!!primary && !unavailable && <CustomButton title="Try again" icon="refresh" variant="outline" onPress={run} />}
           </>
         )}
         <CustomButton title="Choose another image" variant="ghost" onPress={() => router.back()} disabled={status === 'running'} />
@@ -146,6 +202,7 @@ export default function ProcessingScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  images: { gap: spacing.sm },
   center: { alignItems: 'center', paddingVertical: spacing.xxl },
   statusText: { ...typography.body, color: colors.textMuted, marginTop: spacing.md },
   banner: {

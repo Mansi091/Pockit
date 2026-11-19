@@ -54,10 +54,12 @@ const ALIVE = 'deleted_at IS NULL';
 export async function insertContact(c: Contact): Promise<void> {
   await getDb().runAsync(
     `INSERT INTO contacts (id, person_name, company_name, designation, phone, email, website, address,
-       card_image_path, native_contact_id, raw_ocr_text, is_favourite, created_at, updated_at, needs_push, image_needs_push)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+       card_image_path, native_contact_id, raw_ocr_text, is_favourite, created_at, updated_at, needs_push, image_needs_push,
+       card_back_image_path, back_image_needs_push)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     c.id, c.personName, c.companyName, c.designation, c.phone, c.email, c.website, c.address,
     c.cardImagePath, c.nativeContactId, c.rawOcrText, c.isFavourite ? 1 : 0, c.createdAt, c.updatedAt, c.cardImagePath ? 1 : 0,
+    c.cardBackImagePath, c.cardBackImagePath ? 1 : 0,
   );
 }
 
@@ -77,14 +79,16 @@ export async function findFavourites(limit = 20): Promise<Contact[]> {
   return rows.map(toContact);
 }
 
-export async function updateContactRow(c: Contact, imageChanged: boolean): Promise<void> {
+export async function updateContactRow(c: Contact, imageChanged: boolean, backImageChanged = false): Promise<void> {
   await getDb().runAsync(
     `UPDATE contacts SET person_name = ?, company_name = ?, designation = ?, phone = ?, email = ?, website = ?,
-       address = ?, card_image_path = ?, raw_ocr_text = ?, is_favourite = ?, updated_at = ?, needs_push = 1,
-       image_needs_push = CASE WHEN ? THEN 1 ELSE image_needs_push END
+       address = ?, card_image_path = ?, card_back_image_path = ?, raw_ocr_text = ?, is_favourite = ?, updated_at = ?, needs_push = 1,
+       image_needs_push = CASE WHEN ? THEN 1 ELSE image_needs_push END,
+       back_image_needs_push = CASE WHEN ? THEN 1 ELSE back_image_needs_push END
      WHERE id = ? AND ${ALIVE}`,
     c.personName, c.companyName, c.designation, c.phone, c.email, c.website, c.address,
-    c.cardImagePath, c.rawOcrText, c.isFavourite ? 1 : 0, c.updatedAt, imageChanged ? 1 : 0, c.id,
+    c.cardImagePath, c.cardBackImagePath, c.rawOcrText, c.isFavourite ? 1 : 0, c.updatedAt,
+    imageChanged ? 1 : 0, backImageChanged ? 1 : 0, c.id,
   );
 }
 

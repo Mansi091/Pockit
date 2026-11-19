@@ -15,6 +15,7 @@ import CategoryPicker from '@/components/CategoryPicker';
 import { countryByIso } from '@/data/countries';
 import { createContact, displayName, findDuplicates, getContactDetails, updateContact } from '@/services/contactService';
 import { scanSession } from '@/services/scanSession';
+import { describeAdded, mergeBackSide } from '@/services/cardMerge';
 import { checkPhoneDraft, phoneToDraft } from '@/utils/phone';
 import { validateEmail, validatePersonName } from '@/utils/validation';
 import type { ContactField, ContactInput, EmailDraft, PhoneDraft } from '@/types/contact';
@@ -35,9 +36,10 @@ const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[], cats: string[],
  */
 export default function ReviewContactScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; addBack?: string }>();
   const editId = params.id ?? null;
   const isEdit = !!editId;
+  const addingBack = isEdit && params.addBack === '1';
 
   const [loading, setLoading] = useState(isEdit);
   const [notFound, setNotFound] = useState(false);
@@ -49,6 +51,9 @@ export default function ReviewContactScreen() {
   const [initial, setInitial] = useState('');
   const [initialText, setInitialText] = useState<TextForm>(emptyText);
   const [imagePath, setImagePath] = useState<string | null>(null);
+  const [backImagePath, setBackImagePath] = useState<string | null>(null);
+  const [initialBack, setInitialBack] = useState<string | null>(null);
+  const [backNotice, setBackNotice] = useState<string | null>(null);
   const [rawOcr, setRawOcr] = useState<string | null>(null);
   const [lowConfidence, setLowConfidence] = useState<ContactField[]>([]);
   const [fromScan, setFromScan] = useState(false);
@@ -81,6 +86,34 @@ export default function ReviewContactScreen() {
           setInitial(snapshot(t, p, e, details.categoryIds, c.isFavourite));
           setImagePath(c.cardImagePath);
           setRawOcr(c.rawOcrText);
+          setBackImagePath(c.cardBackImagePath);
+          setInitialBack(c.cardBackImagePath);
+
+          // P11: "Add back side" on this contact → merge what the back adds (front data always wins).
+          const s = scanSession.get();
+          if (addingBack && s.draft && s.targetContactId === editId) {
+            const current: ContactInput = { ...t, phones: p, emails: e, cardImagePath: c.cardImagePath, rawOcrText: c.rawOcrText };
+            const { merged, added } = mergeBackSide(current, s.draft);
+            const mt: TextForm = {
+              personName: merged.personName,
+              companyName: merged.companyName ?? '',
+              designation: merged.designation ?? '',
+              website: merged.website ?? '',
+              address: merged.address ?? '',
+            };
+            setText(mt);
+            setInitialText(mt); // so "please check" hints show on the newly filled fields
+            setPhones(merged.phones);
+            setEmails(merged.emails);
+            setRawOcr(merged.rawOcrText);
+            setBackImagePath(s.draft.cardBackImagePath ?? null);
+            setLowConfidence(s.lowConfidence.filter((f) => added.includes(f)));
+            setBackNotice(
+              added.length
+                ? `Added from the back: ${describeAdded(added)}. Check them, then save.`
+                : 'Nothing new was found on the back. Save to keep its image with this contact.',
+            );
+          }
         }
         setLoading(false);
       } else {
@@ -101,12 +134,13 @@ export default function ReviewContactScreen() {
         setEmails(e);
         setInitial(snapshot(t, p, e, [], false));
         setImagePath(d?.cardImagePath ?? s.image?.uri ?? null);
+        setBackImagePath(d?.cardBackImagePath ?? s.back?.uri ?? null);
         setRawOcr(d?.rawOcrText ?? s.ocr?.text ?? null);
         setLowConfidence(s.lowConfidence);
         setFromScan(!!s.ocr?.text);
       }
     })();
-  }, [isEdit, editId]);
+  }, [isEdit, editId, addingBack]);
 
   const nameError = validatePersonName(text.personName);
   const phoneErrors = useMemo(
@@ -115,7 +149,7 @@ export default function ReviewContactScreen() {
   );
   const emailErrors = useMemo(() => emails.map((e) => validateEmail(e.address)).filter(Boolean), [emails]);
   const hasErrors = !!nameError || phoneErrors.length > 0 || emailErrors.length > 0;
-  const dirty = snapshot(text, phones, emails, categoryIds, favourite) !== initial;
+  const dirty = snapshot(text, phones, emails, categoryIds, favourite) !== initial || (isEdit && backImagePath !== initialBack);
 
   const set = (k: TextKey) => (v: string) => setText((f) => ({ ...f, [k]: v }));
   const warn = (k: ContactField & TextKey) =>
@@ -126,6 +160,7 @@ export default function ReviewContactScreen() {
     phones,
     emails,
     cardImagePath: imagePath,
+    cardBackImagePath: backImagePath,
     rawOcrText: rawOcr,
     categoryIds,
     isFavourite: favourite,
@@ -136,6 +171,7 @@ export default function ReviewContactScreen() {
     try {
       if (isEdit) {
         await updateContact(editId!, buildInput());
+        if (addingBack) scanSession.clear();
         router.back();
       } else {
         const created = await createContact(buildInput());
@@ -170,6 +206,7 @@ export default function ReviewContactScreen() {
   };
 
   const leave = () => {
+    if (addingBack) scanSession.clear();
     if (isEdit) router.back();
     else {
       scanSession.clear();
@@ -201,9 +238,23 @@ export default function ReviewContactScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Stack.Screen options={{ title: isEdit ? 'Edit Contact' : 'Review Contact' }} />
+      <Stack.Screen options={{ title: addingBack ? 'Add Back Side' : isEdit ? 'Edit Contact' : 'Review Contact' }} />
       <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ImagePreview uri={imagePath} height={170} emptyText="No card image (manual entry)" />
+        {!!backImagePath && (
+          <View style={{ marginTop: spacing.sm }}>
+            <ImagePreview uri={backImagePath} height={130} />
+            <View style={styles.sideBadge}>
+              <Text style={styles.sideBadgeText}>Back</Text>
+            </View>
+            <CustomButton title="Remove back side" icon="trash-outline" variant="ghost" onPress={() => setBackImagePath(null)} />
+          </View>
+        )}
+        {!!backNotice && (
+          <View style={{ marginTop: spacing.sm }}>
+            <FormError tone="info" message={backNotice} />
+          </View>
+        )}
 
         {!!rawOcr && (
           <View style={styles.rawWrap}>
@@ -277,6 +328,16 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   hint: { ...typography.caption, marginBottom: spacing.lg },
+  sideBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  sideBadgeText: { fontSize: 12, fontWeight: '600', color: colors.primaryDark },
   fieldLabel: { ...typography.label, marginBottom: spacing.sm },
   saveBar: {
     flexDirection: 'row',

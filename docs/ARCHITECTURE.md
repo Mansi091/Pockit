@@ -95,3 +95,10 @@ docs/               this file, SETUP.md
 - **Later (parked by product owner): Digital business card** — the user creates their
   own card and shares it via a QR code (Blinq / HiHello style).
 - Optional: biometric app lock, LLM fallback for hard cards, team address book, CRM export.
+
+## Two-sided cards (P11, back side)
+
+- Scan screen: front first, then an optional **Add back side** (auto scanner / camera / gallery via `services/cardCapture.ts`). Back can be rotated, replaced, swapped with the front or removed.
+- Processing reads both sides with ML Kit. `services/cardMerge.ts` merges them: **the front always wins**; the back only fills empty fields and adds phone numbers (matched on last 10 digits) and emails (case-insensitive) that aren't already present. Raw OCR text is joined with a `--- Back side ---` separator. If only the back fails to read, the scan continues and the back image is still saved.
+- Existing contacts: profile → **Add back side** → processing in back-only mode (`scanSession.targetContactId`) → review screen (`?id=…&addBack=1`) shows the merge for confirmation; nothing is saved until the user taps Save.
+- Storage: `contacts.card_back_image_path` locally as `<id>_back.jpg`; synced to `cards/<uid>/<id>_back.jpg` by the existing image spec in `sync/tables.ts`. No schema change was needed (added in v2 / 0002).
