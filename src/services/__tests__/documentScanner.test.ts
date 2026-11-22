@@ -3,7 +3,7 @@ jest.mock('react-native-document-scanner-plugin', () => ({ __esModule: true, def
 jest.mock('@/lib/runtime', () => ({ isExpoGo: false }));
 
 import { Image, TurboModuleRegistry } from 'react-native';
-import { isDocumentScannerAvailable, scanCardAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';
+import { isDocumentScannerAvailable, scanCardAutomatically, scanCardsAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';
 
 describe('documentScannerService', () => {
   beforeEach(() => {
@@ -34,5 +34,17 @@ describe('documentScannerService', () => {
     mockScan.mockRejectedValue(new Error('Google Play services not available'));
     await expect(scanCardAutomatically()).rejects.toThrow('Google Play services not available');
     await expect(scanCardAutomatically()).rejects.toBeInstanceOf(ScannerUnavailableError);
+  });
+
+  it('batch mode returns every scanned card, in order', async () => {
+    mockScan.mockResolvedValue({ status: 'success', scannedImages: ['file:///a.jpg', 'file:///b.jpg', 'file:///c.jpg'] });
+    const cards = await scanCardsAutomatically(20);
+    expect(cards.map((c) => c.uri)).toEqual(['file:///a.jpg', 'file:///b.jpg', 'file:///c.jpg']);
+    expect(mockScan).toHaveBeenCalledWith({ maxNumDocuments: 20, croppedImageQuality: 95 });
+  });
+
+  it('batch mode returns [] on cancel', async () => {
+    mockScan.mockResolvedValue({ status: 'cancel' });
+    await expect(scanCardsAutomatically(20)).resolves.toEqual([]);
   });
 });

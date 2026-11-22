@@ -145,9 +145,31 @@ export async function search(query: string, filters: SearchFilters = {}): Promis
   }
   const q = query.trim();
   if (q) {
+    // Searches everything a person might remember about someone (P12 "enhanced search").
     const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    clauses.push(`(person_name LIKE ? ESCAPE '\\' OR company_name LIKE ? ESCAPE '\\')`);
-    params.push(like, like);
+    const L = (col: string) => `${col} LIKE ? ESCAPE '\\'`;
+    const ors = [
+      ...['person_name', 'company_name', 'designation', 'email', 'website', 'address'].map(L),
+      `EXISTS (SELECT 1 FROM contact_emails e WHERE e.contact_id = contacts.id AND e.deleted_at IS NULL AND ${L('e.address')})`,
+      `EXISTS (SELECT 1 FROM contact_categories l JOIN categories g ON g.id = l.category_id AND g.deleted_at IS NULL
+               WHERE l.contact_id = contacts.id AND l.deleted_at IS NULL AND ${L('g.name')})`,
+      `EXISTS (SELECT 1 FROM interactions i WHERE i.contact_id = contacts.id AND i.deleted_at IS NULL
+               AND (${L('i.notes')} OR ${L('i.place')}))`,
+      `EXISTS (SELECT 1 FROM event_contacts x JOIN events v ON v.id = x.event_id AND v.deleted_at IS NULL
+               WHERE x.contact_id = contacts.id AND x.deleted_at IS NULL AND ${L('v.name')})`,
+    ];
+    params.push(...Array<string>(6).fill(like), like, like, like, like, like);
+    // Phone search by digits, ignoring spaces / dashes / "+" ("98672", "+91 98672 99476").
+    const digits = q.replace(/\D/g, '');
+    if (digits.length >= 3 && /^[\d\s+()./-]+$/.test(q)) {
+      ors.push(
+        `EXISTS (SELECT 1 FROM contact_phones p WHERE p.contact_id = contacts.id AND p.deleted_at IS NULL
+                 AND (p.national_number LIKE ? OR p.e164 LIKE ?))`,
+        `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE ?`,
+      );
+      params.push(`%${digits}%`, `%${digits}%`, `%${digits}%`);
+    }
+    clauses.push(`(${ors.join(' OR ')})`);
   }
   if (company) {
     clauses.push('company_name = ? COLLATE NOCASE');

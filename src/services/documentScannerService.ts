@@ -41,20 +41,29 @@ const getSize = (uri: string) =>
 
 /** Opens Google's scanner. Resolves null if the user cancels. */
 export async function scanCardAutomatically(): Promise<ScannedCard | null> {
+  const cards = await scanCardsAutomatically(1);
+  return cards[0] ?? null;
+}
+
+/**
+ * P12 batch scan: Google's scanner lets the user capture up to `max` cards in
+ * one session (each auto-cropped). Resolves [] if the user cancels.
+ */
+export async function scanCardsAutomatically(max: number): Promise<ScannedCard[]> {
   if (!isDocumentScannerAvailable()) throw new ScannerUnavailableError();
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const DocumentScanner = require('react-native-document-scanner-plugin').default as typeof import('react-native-document-scanner-plugin').default;
 
   let result;
   try {
-    result = await DocumentScanner.scanDocument({ maxNumDocuments: 1, croppedImageQuality: 95 });
+    result = await DocumentScanner.scanDocument({ maxNumDocuments: max, croppedImageQuality: 95 });
   } catch (e) {
     // e.g. Google Play services missing/outdated, or the device doesn't meet ML Kit's requirements
     throw new ScannerUnavailableError(e instanceof Error ? e.message : undefined);
   }
-  if (result.status !== 'success' || !result.scannedImages?.length) return null;
+  if (result.status !== 'success' || !result.scannedImages?.length) return [];
 
-  const uri = result.scannedImages[0]!;
-  const size = await getSize(uri).catch(() => ({ width: 0, height: 0 }));
-  return { uri, ...size };
+  return Promise.all(
+    result.scannedImages.map(async (uri) => ({ uri, ...(await getSize(uri).catch(() => ({ width: 0, height: 0 }))) })),
+  );
 }

@@ -53,6 +53,8 @@ function RootNavigator() {
           <Stack.Screen name="processing" options={{ title: 'Processing', headerBackVisible: false, gestureEnabled: false }} />
           <Stack.Screen name="review-contact" options={{ title: 'Review Contact' }} />
           <Stack.Screen name="contact/[id]" options={{ title: 'Contact Profile' }} />
+          <Stack.Screen name="event/[id]" options={{ title: 'Event' }} />
+          <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!signedIn}>

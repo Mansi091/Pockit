@@ -4,6 +4,7 @@ import { supabase, requireSupabase } from '@/lib/supabase';
 import { closeUserDatabase, deleteUserDatabase, openUserDatabase } from '@/database/db';
 import { deleteAllUserImages } from '@/services/imageService';
 import { initSync, resetSyncStatus } from '@/services/syncService';
+import { cancelAllFollowUpNotifications } from '@/services/notificationService';
 import { emitContactsChanged } from '@/services/dataEvents';
 import { getGoogleIdToken, googleSignOut } from '@/auth/googleAuth';
 
@@ -91,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emitContactsChanged();
         setReady(true);
       } else if (!userId && openedFor) {
+        await cancelAllFollowUpNotifications(); // the next person on this phone mustn't get these
         await closeUserDatabase();
         resetSyncStatus();
         setOpenedFor(null);

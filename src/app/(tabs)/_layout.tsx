@@ -1,7 +1,11 @@
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '@/constants/theme';
+import { useContactsVersion } from '@/services/dataEvents';
+import { refreshNotifications } from '@/services/activityService';
+import { initNotifications, onNotificationTap } from '@/services/notificationService';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const icon =
@@ -10,8 +14,28 @@ const icon =
     <Ionicons name={focused ? active : inactive} size={size} color={focused ? colors.primary : colors.textSubtle} />
   );
 
-/** Bottom navigation: Home · Contacts · (Scan) · Categories · Settings. */
+/**
+ * Bottom navigation: Home · Contacts · (Scan) · Planner · Categories.
+ * Settings opens from the gear on Home. Each area has its own screen —
+ * Planner splits into Follow-ups / Calendar / Events tabs at the top.
+ */
 export default function TabLayout() {
+  const version = useContactsVersion();
+
+  // Follow-up notifications: set up once, open the contact when one is tapped…
+  useEffect(() => {
+    initNotifications().catch(() => {});
+    return onNotificationTap((contactId) =>
+      router.push({ pathname: '/contact/[id]', params: { id: contactId, tab: 'followups' } }),
+    );
+  }, []);
+
+  // …and re-schedule whenever data changes (local edits or a cloud sync).
+  useEffect(() => {
+    const t = setTimeout(() => refreshNotifications(), 800);
+    return () => clearTimeout(t);
+  }, [version]);
+
   return (
     <Tabs
       screenOptions={{
@@ -50,8 +74,8 @@ export default function TabLayout() {
           },
         }}
       />
+      <Tabs.Screen name="planner" options={{ title: 'Planner', tabBarIcon: icon('calendar', 'calendar-outline') }} />
       <Tabs.Screen name="categories" options={{ title: 'Categories', tabBarIcon: icon('pricetags', 'pricetags-outline') }} />
-      <Tabs.Screen name="settings" options={{ title: 'Settings', tabBarIcon: icon('settings', 'settings-outline') }} />
     </Tabs>
   );
 }

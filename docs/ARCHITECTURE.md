@@ -102,3 +102,25 @@ docs/               this file, SETUP.md
 - Processing reads both sides with ML Kit. `services/cardMerge.ts` merges them: **the front always wins**; the back only fills empty fields and adds phone numbers (matched on last 10 digits) and emails (case-insensitive) that aren't already present. Raw OCR text is joined with a `--- Back side ---` separator. If only the back fails to read, the scan continues and the back image is still saved.
 - Existing contacts: profile → **Add back side** → processing in back-only mode (`scanSession.targetContactId`) → review screen (`?id=…&addBack=1`) shows the merge for confirmation; nothing is saved until the user taps Save.
 - Storage: `contacts.card_back_image_path` locally as `<id>_back.jpg`; synced to `cards/<uid>/<id>_back.jpg` by the existing image spec in `sync/tables.ts`. No schema change was needed (added in v2 / 0002).
+
+## Navigation (P9/P12)
+
+Bottom bar: **Home · Contacts · (Scan) · Planner · Categories**. Settings opens from the gear on Home (stack screen `src/app/settings.tsx`).
+Each area has its own screen; nothing is stacked onto one long page:
+
+- **Planner** (`(tabs)/planner.tsx`) has three top tabs (`SegmentedTabs`): **Follow-ups** (overdue / today / upcoming / done), **Calendar** (month grid with coloured dots: met, follow-up, card added, event; tap a day for its timeline), **Events**.
+- **Contact page** has three top tabs: **Details** (info, card images, save to phone) · **Notes** (meeting history timeline) · **Follow-ups**. `?tab=notes|followups` opens a tab directly (used by notifications and the calendar).
+- **Event page** (`event/[id].tsx`): Event mode on/off, "Scan cards for this event", add existing contacts, people met.
+
+## Meeting notes, follow-ups, events (P9 + P12)
+
+- Data: `interactions`, `reminders`, `events`, `event_contacts` (schema from v2 / 0002, already synced). Repository `database/activityRepository.ts`, rules in `services/activityService.ts` (limits mirror the Postgres CHECKs).
+- New contacts: the review screen has optional **Where you met** (date, place, note) and **Follow-up reminder** sections, saved with `recordFirstMeeting` in one transaction right after the contact.
+- Notifications (`services/notificationService.ts`, expo-notifications, guarded): local only. After any data change or sync, `refreshNotifications()` cancels Pockit's scheduled alerts and schedules the nearest 60 open future follow-ups. Permission is asked on the first follow-up, never at launch. Tapping an alert opens the contact's Follow-ups tab. Sign-out cancels everything.
+- **Event mode** (`meta.active_event_id`, this device only): new scans are linked to the event and the meeting place is prefilled; after saving, "Scan next card" goes straight back to the camera.
+- **Batch scan**: Google's scanner captures up to 20 cards in one session (`scanCardsAutomatically`). `scanSession` queues them; each card goes through OCR → review → **Save & next / Skip card**. Stop discards only the cards not yet reviewed.
+- `event_contacts` ids are deterministic (SHA-256 of event+contact, like `contact_categories`) so two offline devices can't clash on the cloud's unique constraint.
+
+## Search
+
+Contacts search matches name, company, designation, website, address, every email, phone digits (spaces/dashes/+ ignored), category names, meeting notes/places and event names.

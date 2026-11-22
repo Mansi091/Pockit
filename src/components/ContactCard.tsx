@@ -8,15 +8,17 @@ import { displayName } from '@/services/contactService';
 interface Props {
   contact: Contact;
   onPress: () => void;
+  onLongPress?: () => void;
   /** Hide the bottom divider (last row in a group). */
   last?: boolean;
 }
 
 /** A contact row: avatar, "Name – Company", designation. Meant to sit inside a white group card. */
-export default function ContactCard({ contact, onPress, last }: Props) {
+export default function ContactCard({ contact, onPress, onLongPress, last }: Props) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={displayName(contact)}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceMuted }]}

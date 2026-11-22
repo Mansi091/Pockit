@@ -18,6 +18,17 @@ import { scanSession } from '@/services/scanSession';
 import { describeAdded, mergeBackSide } from '@/services/cardMerge';
 import { checkPhoneDraft, phoneToDraft } from '@/utils/phone';
 import { validateEmail, validatePersonName } from '@/utils/validation';
+import { DateField, DateTimeField } from '@/components/DateTimeField';
+import FollowUpPresets from '@/components/FollowUpPresets';
+import { showPermissionHint } from '@/components/followUpHints';
+import {
+  getActiveEvent,
+  recordFirstMeeting,
+  validateFollowUp,
+  validateNote,
+  type EventWithCount,
+} from '@/services/activityService';
+import { todayKey } from '@/utils/dates';
 import type { ContactField, ContactInput, EmailDraft, PhoneDraft } from '@/types/contact';
 
 type TextKey = 'personName' | 'companyName' | 'designation' | 'website' | 'address';
@@ -60,6 +71,26 @@ export default function ReviewContactScreen() {
   const [showRaw, setShowRaw] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // P9/P12 — new contacts only: where you met, a follow-up, and Event mode.
+  const [activeEvent, setActiveEvent] = useState<EventWithCount | null>(null);
+  const [linkEvent, setLinkEvent] = useState(true);
+  const [meetDay, setMeetDay] = useState<string | null>(todayKey());
+  const [meetPlace, setMeetPlace] = useState('');
+  const [meetNote, setMeetNote] = useState('');
+  const [followUp, setFollowUp] = useState<Date | null>(null);
+  const [followUpTitle, setFollowUpTitle] = useState('');
+  const batchPos = isEdit ? null : scanSession.batchPosition();
+
+  useEffect(() => {
+    if (isEdit) return;
+    getActiveEvent()
+      .then((e) => {
+        setActiveEvent(e);
+        if (e) setMeetPlace((p) => p || e.location || e.name);
+      })
+      .catch(() => {});
+  }, [isEdit]);
 
   useEffect(() => {
     (async () => {
@@ -175,9 +206,16 @@ export default function ReviewContactScreen() {
         router.back();
       } else {
         const created = await createContact(buildInput());
-        scanSession.clear();
-        router.dismissAll();
-        router.push({ pathname: '/contact/[id]', params: { id: created.id } });
+        const meeting = firstMeeting();
+        let perm = null;
+        try {
+          perm = await recordFirstMeeting(created.id, meeting);
+        } catch (e) {
+          // The contact is saved; only the extras failed. Say so instead of losing the contact.
+          Alert.alert('Contact saved', `But the meeting details could not be saved: ${e instanceof Error ? e.message : 'unknown error'}`);
+        }
+        if (perm) showPermissionHint(perm);
+        afterCreate(created.id, created.personName);
       }
     } catch (e) {
       Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
@@ -186,11 +224,68 @@ export default function ReviewContactScreen() {
     }
   };
 
+  /** What the "Where you met" / "Follow-up" sections add to a new contact. */
+  const firstMeeting = () => {
+    const hasNote = !!meetPlace.trim() || !!meetNote.trim();
+    const first = text.personName.trim().split(/\s+/)[0] || 'them';
+    return {
+      eventId: activeEvent && linkEvent ? activeEvent.id : null,
+      note: hasNote ? { occurredOn: meetDay, place: meetPlace, notes: meetNote } : null,
+      followUp: followUp ? { title: followUpTitle.trim() || `Follow up with ${first}`, due: followUp } : null,
+    };
+  };
+
+  /** After saving a new contact: next card in a batch, quick "scan next" in Event mode, or open it. */
+  const afterCreate = (id: string, name: string) => {
+    if (scanSession.get().batch) {
+      if (scanSession.nextInBatch(true)) {
+        router.replace('/processing');
+        return;
+      }
+      const saved = scanSession.get().batch?.saved ?? 0;
+      scanSession.clear();
+      router.dismissAll();
+      Alert.alert('Batch finished', `${saved} card${saved === 1 ? '' : 's'} saved${activeEvent && linkEvent ? ` to ${activeEvent.name}` : ''}.`);
+      return;
+    }
+    scanSession.clear();
+    if (activeEvent) {
+      router.dismissAll();
+      Alert.alert('Saved', `${name} was added${linkEvent ? ` to ${activeEvent.name}` : ''}.`, [
+        { text: 'View contact', onPress: () => router.push({ pathname: '/contact/[id]', params: { id } }) },
+        { text: 'Scan next card', onPress: () => router.push('/scan') },
+      ]);
+      return;
+    }
+    router.dismissAll();
+    router.push({ pathname: '/contact/[id]', params: { id } });
+  };
+
+  /** Batch: drop this card and move on. */
+  const skipCard = () => {
+    if (scanSession.nextInBatch(false)) {
+      router.replace('/processing');
+      return;
+    }
+    const saved = scanSession.get().batch?.saved ?? 0;
+    scanSession.clear();
+    router.dismissAll();
+    Alert.alert('Batch finished', `${saved} card${saved === 1 ? '' : 's'} saved.`);
+  };
+
   const onSave = async () => {
     setSubmitted(true);
     if (hasErrors) {
       Alert.alert('Check the form', 'Please fix the highlighted fields before saving.');
       return;
+    }
+    if (!isEdit) {
+      const m = firstMeeting();
+      const problem = (m.note && validateNote(m.note)) || (m.followUp && validateFollowUp(m.followUp.title, m.followUp.due));
+      if (problem) {
+        Alert.alert('Check the meeting details', problem);
+        return;
+      }
     }
     const dupes = await findDuplicates({ phones, emails }, editId ?? undefined);
     if (dupes.length) {
@@ -206,6 +301,12 @@ export default function ReviewContactScreen() {
   };
 
   const leave = () => {
+    if (scanSession.get().batch && !isEdit) {
+      // Leaving a batch discards the cards that weren't reviewed yet.
+      scanSession.clear();
+      router.dismissAll();
+      return;
+    }
     if (addingBack) scanSession.clear();
     if (isEdit) router.back();
     else {
@@ -215,6 +316,14 @@ export default function ReviewContactScreen() {
   };
 
   const onCancel = () => {
+    if (batchPos) {
+      const left = batchPos.total - batchPos.index;
+      Alert.alert('Stop batch scanning?', `This card${left ? ` and the ${left} after it` : ''} won't be saved. Cards you already saved stay.`, [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'Stop', style: 'destructive', onPress: leave },
+      ]);
+      return;
+    }
     if (!dirty && !(fromScan && !isEdit)) return leave();
     Alert.alert('Discard this contact?', 'Nothing has been saved yet.', [
       { text: 'Keep editing', style: 'cancel' },
@@ -238,7 +347,22 @@ export default function ReviewContactScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Stack.Screen options={{ title: addingBack ? 'Add Back Side' : isEdit ? 'Edit Contact' : 'Review Contact' }} />
+      <Stack.Screen
+        options={{
+          title: batchPos ? `Card ${batchPos.index} of ${batchPos.total}` : addingBack ? 'Add Back Side' : isEdit ? 'Edit Contact' : 'Review Contact',
+          headerRight: batchPos
+            ? () => <CustomButton title="Stop" variant="ghost" onPress={onCancel} style={{ paddingHorizontal: 0 }} />
+            : undefined,
+        }}
+      />
+      {!isEdit && activeEvent && (
+        <View style={styles.eventStrip}>
+          <Text style={styles.eventStripText} numberOfLines={1}>
+            {linkEvent ? `Will be added to ${activeEvent.name}` : `Not adding to ${activeEvent.name}`}
+          </Text>
+          <CustomButton title={linkEvent ? "Don't add" : 'Add'} variant="ghost" onPress={() => setLinkEvent((v) => !v)} style={{ paddingVertical: 4 }} />
+        </View>
+      )}
       <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ImagePreview uri={imagePath} height={170} emptyText="No card image (manual entry)" />
         {!!backImagePath && (
@@ -303,12 +427,60 @@ export default function ReviewContactScreen() {
           <InputField label="Website" value={text.website} onChangeText={set('website')} keyboardType="url" autoCapitalize="none" autoCorrect={false} />
           <InputField label="Address" value={text.address} onChangeText={set('address')} warning={warn('address')} multiline />
         </FormSection>
+
+        {!isEdit && (
+          <>
+            <FormSection title="Where you met · optional" icon="location-outline">
+              <DateField label="When" value={meetDay} onChange={setMeetDay} clearable />
+              <InputField label="Place" value={meetPlace} onChangeText={setMeetPlace} placeholder="e.g. TechSparks expo, Pune" maxLength={120} />
+              <InputField
+                label="Note"
+                value={meetNote}
+                onChangeText={setMeetNote}
+                placeholder="What did you talk about?"
+                multiline
+                maxLength={5000}
+              />
+            </FormSection>
+
+            <FormSection title="Follow-up reminder · optional" icon="alarm-outline">
+              <FollowUpPresets value={followUp} onChange={setFollowUp} allowNone />
+              {followUp && (
+                <View style={{ marginTop: spacing.md }}>
+                  <DateTimeField label="Exact date and time" value={followUp} onChange={setFollowUp} />
+                  <InputField
+                    label="About"
+                    value={followUpTitle}
+                    onChangeText={setFollowUpTitle}
+                    placeholder={`Follow up with ${text.personName.trim().split(/\s+/)[0] || 'them'}`}
+                    maxLength={200}
+                  />
+                </View>
+              )}
+            </FormSection>
+          </>
+        )}
       </ScrollView>
 
       {/* Save bar pinned to the bottom */}
       <View style={[styles.saveBar, { paddingBottom: insets.bottom + spacing.md }]}>
-        <CustomButton title="Cancel" variant="outline" onPress={onCancel} disabled={saving} style={styles.cancel} />
-        <CustomButton title={isEdit ? 'Save Changes' : 'Save Contact'} icon="checkmark" onPress={onSave} loading={saving} style={styles.save} />
+        {batchPos ? (
+          <>
+            <CustomButton title="Skip card" variant="outline" onPress={skipCard} disabled={saving} style={styles.cancel} />
+            <CustomButton
+              title={batchPos.index < batchPos.total ? 'Save & next' : 'Save & finish'}
+              icon={batchPos.index < batchPos.total ? 'arrow-forward' : 'checkmark'}
+              onPress={onSave}
+              loading={saving}
+              style={styles.save}
+            />
+          </>
+        ) : (
+          <>
+            <CustomButton title="Cancel" variant="outline" onPress={onCancel} disabled={saving} style={styles.cancel} />
+            <CustomButton title={isEdit ? 'Save Changes' : 'Save Contact'} icon="checkmark" onPress={onSave} loading={saving} style={styles.save} />
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -316,6 +488,17 @@ export default function ReviewContactScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  eventStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FDF2F8',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F9A8D4',
+  },
+  eventStripText: { flex: 1, color: '#9D174D', fontWeight: '600', fontSize: 13 },
   content: { padding: spacing.lg, paddingBottom: spacing.xl },
   rawWrap: { marginTop: spacing.sm },
   rawText: {

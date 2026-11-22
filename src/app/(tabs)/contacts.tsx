@@ -68,7 +68,7 @@ export default function ContactsScreen() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search name or company"
+          placeholder="Search name, company, phone, email, notes…"
           placeholderTextColor={colors.textSubtle}
           style={styles.searchInput}
           autoCorrect={false}

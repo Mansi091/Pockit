@@ -7,7 +7,8 @@ import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import FormError from '@/components/FormError';
 import OptionSheet from '@/components/OptionSheet';
-import { isDocumentScannerAvailable, ScannerUnavailableError } from '@/services/documentScannerService';
+import EventModeBanner from '@/components/EventModeBanner';
+import { isDocumentScannerAvailable, scanCardsAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';
 import { CAPTURE_LABEL, captureCard, captureSources, type CaptureSource, type CardImage } from '@/services/cardCapture';
 import { prepareImage } from '@/services/imageService';
 import { scanSession } from '@/services/scanSession';
@@ -35,7 +36,7 @@ export default function ScanScreen() {
   useFocusEffect(
     useCallback(() => {
       const s = scanSession.get();
-      if (s.targetContactId) scanSession.clear(); // leftover "add back side" flow — start fresh
+      if (s.targetContactId || s.batch) scanSession.clear(); // leftover back-only / batch flow — start fresh
       setFront(scanSession.get().image);
       setBack(scanSession.get().back);
     }, []),
@@ -70,6 +71,27 @@ export default function ScanScreen() {
       }
     } finally {
       setBusy(null);
+    }
+  };
+
+  // P12 batch: capture up to 20 cards in one go, then review them one after another.
+  const [batchBusy, setBatchBusy] = useState(false);
+  const runBatch = async () => {
+    setBatchBusy(true);
+    try {
+      const scanned = await scanCardsAutomatically(20);
+      if (!scanned.length) return;
+      const prepared = [];
+      for (const c of scanned) prepared.push(await prepareImage(c.uri, { width: c.width, height: c.height }));
+      scanSession.startBatch(prepared);
+      router.push('/processing');
+    } catch (e) {
+      Alert.alert(
+        e instanceof ScannerUnavailableError ? 'Automatic scan unavailable' : 'Could not scan the cards',
+        e instanceof Error ? e.message : 'Please try again.',
+      );
+    } finally {
+      setBatchBusy(false);
     }
   };
 
@@ -204,6 +226,7 @@ export default function ScanScreen() {
   // ── Choose a capture method ────────────────────────────────────────
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <EventModeBanner />
       <Text style={styles.title}>Add a business card</Text>
       <Text style={styles.subtitle}>
         {autoAvailable
@@ -227,8 +250,17 @@ export default function ScanScreen() {
       <View style={styles.actions}>
         {autoAvailable ? (
           <>
-            <CustomButton title="Scan card" icon="scan" onPress={() => run('front', 'auto')} loading={busy === 'front:auto'} disabled={!!busy} />
-            <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
+            <CustomButton title="Scan card" icon="scan" onPress={() => run('front', 'auto')} loading={busy === 'front:auto'} disabled={!!busy || batchBusy} />
+            <CustomButton
+              title="Scan several cards"
+              icon="layers-outline"
+              variant="secondary"
+              onPress={runBatch}
+              loading={batchBusy}
+              disabled={!!busy}
+            />
+            <Text style={styles.batchHint}>Several cards: scan them one after another (up to 20), then check each before it's saved.</Text>
+            <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy || batchBusy} />
           </>
         ) : (
           <CustomButton title="Take photo" icon="camera-outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
@@ -339,6 +371,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actions: { gap: spacing.sm, marginTop: spacing.lg },
+  batchHint: { ...typography.caption, textAlign: 'center', marginTop: -2, marginBottom: spacing.xs },
   row: { flexDirection: 'row', gap: spacing.sm },
   half: { flex: 1 },
 });

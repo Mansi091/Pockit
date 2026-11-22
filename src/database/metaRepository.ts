@@ -18,4 +18,5 @@ export const META = {
   backupEnabled: 'backup_enabled', // '1' | '0'
   lastPulledAt: 'last_pulled_at', // server timestamp cursor
   lastSyncedAt: 'last_synced_at', // device time of last successful sync (for display)
+  activeEventId: 'active_event_id', // P12 event mode on THIS device (not synced)
 } as const;

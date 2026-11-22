@@ -31,6 +31,7 @@ const read = async (img: { uri: string; width: number; height: number }): Promis
  */
 export default function ProcessingScreen() {
   const { image, back, targetContactId } = scanSession.get();
+  const batchPos = scanSession.batchPosition();
   const primary = image ?? back; // what must be readable for this screen to succeed
   const [status, setStatus] = useState<Status>('running');
   const [step, setStep] = useState<'front' | 'back'>(image ? 'front' : 'back');
@@ -114,6 +115,12 @@ export default function ProcessingScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      {batchPos && (
+        <View style={styles.batchPill}>
+          <Ionicons name="layers-outline" size={14} color={colors.primaryDark} />
+          <Text style={styles.batchText}>Card {batchPos.index} of {batchPos.total}</Text>
+        </View>
+      )}
       <View style={styles.images}>
         {image && <ImagePreview uri={image.uri} height={back ? 130 : 180} />}
         {back && <ImagePreview uri={back.uri} height={130} />}
@@ -203,6 +210,18 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   images: { gap: spacing.sm },
+  batchPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    marginBottom: spacing.md,
+  },
+  batchText: { fontSize: 13, fontWeight: '700', color: colors.primaryDark },
   center: { alignItems: 'center', paddingVertical: spacing.xxl },
   statusText: { ...typography.body, color: colors.textMuted, marginTop: spacing.md },
   banner: {

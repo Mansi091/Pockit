@@ -8,6 +8,10 @@ import ImagePreview from '@/components/ImagePreview';
 import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import OptionSheet from '@/components/OptionSheet';
+import SegmentedTabs from '@/components/SegmentedTabs';
+import ContactNotesTab from '@/components/contact/ContactNotesTab';
+import ContactFollowUpsTab from '@/components/contact/ContactFollowUpsTab';
+import { getEventsForContact, getFollowUps, getNotes, type EventWithCount, type ReminderWithContact } from '@/services/activityService';
 import CardPhotoComposer, { type CardPhotoComposerHandle } from '@/components/CardPhotoComposer';
 import { deleteContact, getContactDetails, linkNativeContact, setFavourite } from '@/services/contactService';
 import { getCategories, type CategoryWithCount } from '@/services/categoryService';
@@ -18,11 +22,19 @@ import { ScannerUnavailableError } from '@/services/documentScannerService';
 import { scanSession } from '@/services/scanSession';
 import { dialString, formatPhone } from '@/utils/phone';
 import { flagOf } from '@/data/countries';
-import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone } from '@/types/contact';
+import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone, type Interaction } from '@/types/contact';
+
+type ProfileTab = 'details' | 'notes' | 'followups';
+const isProfileTab = (t: unknown): t is ProfileTab => t === 'details' || t === 'notes' || t === 'followups';
 
 /** Screen 7 – Contact Profile: call / email / website / edit / delete / save to phone contacts. */
 export default function ContactProfileScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; tab?: string }>();
+  const id = params.id;
+  const [tab, setTab] = useState<ProfileTab>(isProfileTab(params.tab) ? params.tab : 'details');
+  const [notes, setNotes] = useState<Interaction[]>([]);
+  const [followUps, setFollowUps] = useState<ReminderWithContact[]>([]);
+  const [events, setEvents] = useState<EventWithCount[]>([]);
   const version = useContactsVersion();
   const [contact, setContact] = useState<Contact | null | undefined>(undefined); // undefined = loading
   const [phones, setPhones] = useState<ContactPhone[]>([]);
@@ -43,6 +55,12 @@ export default function ContactProfileScreen() {
       setEmails(details?.emails ?? []);
       const all = details?.categoryIds.length ? await getCategories() : [];
       setContactCategories(all.filter((c) => details!.categoryIds.includes(c.id)));
+      if (details) {
+        const [n, f, e] = await Promise.all([getNotes(id), getFollowUps(id), getEventsForContact(id)]);
+        setNotes(n);
+        setFollowUps(f);
+        setEvents(e);
+      }
     } catch {
       setContact(null);
     }
@@ -51,6 +69,10 @@ export default function ContactProfileScreen() {
   useEffect(() => {
     load();
   }, [load, version]);
+
+  useEffect(() => {
+    if (isProfileTab(params.tab)) setTab(params.tab);
+  }, [params.tab]);
 
   if (contact === undefined) return <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />;
   if (contact === null) {
@@ -194,8 +216,20 @@ You can take a photo and crop it to the card instead.`, [
         <Text style={styles.name}>{contact.personName}</Text>
         {!!contact.designation && <Text style={styles.designation}>{contact.designation}</Text>}
         {!!contact.companyName && <Text style={styles.company}>{contact.companyName}</Text>}
-        {contactCategories.length > 0 && (
+        {(contactCategories.length > 0 || events.length > 0) && (
           <View style={styles.catRow}>
+            {events.map((e) => (
+              <Pressable
+                key={e.id}
+                onPress={() => router.push({ pathname: '/event/[id]', params: { id: e.id } })}
+                style={[styles.catChip, styles.eventChip]}
+                accessibilityRole="button"
+                accessibilityLabel={`Event ${e.name}`}
+              >
+                <Ionicons name="calendar" size={12} color="#9D174D" />
+                <Text style={[styles.catText, { color: '#9D174D' }]} numberOfLines={1}>{e.name}</Text>
+              </Pressable>
+            ))}
             {contactCategories.map((c) => (
               <Pressable
                 key={c.id}
@@ -217,6 +251,28 @@ You can take a photo and crop it to the card instead.`, [
         </View>
       </View>
 
+      <SegmentedTabs
+        value={tab}
+        onChange={setTab}
+        style={{ marginHorizontal: spacing.lg, marginBottom: spacing.lg }}
+        tabs={[
+          { key: 'details', label: 'Details', icon: 'person-outline' },
+          { key: 'notes', label: 'Notes', icon: 'chatbubble-ellipses-outline', badge: notes.length },
+          {
+            key: 'followups',
+            label: 'Follow-ups',
+            icon: 'alarm-outline',
+            badge: followUps.filter((r) => !r.completedAt).length,
+            urgent: followUps.some((r) => !r.completedAt && new Date(r.dueAt).getTime() < Date.now()),
+          },
+        ]}
+      />
+
+      {tab === 'notes' && <ContactNotesTab contactId={contact.id} notes={notes} />}
+      {tab === 'followups' && <ContactFollowUpsTab contact={contact} reminders={followUps} />}
+
+      {tab === 'details' && (
+      <>
       <View style={styles.card}>
         {phones.length === 0 && <Detail icon="call-outline" label="Phone" value={null} />}
         {phones.map((p) => (
@@ -282,6 +338,8 @@ You can take a photo and crop it to the card instead.`, [
         />
         <CustomButton title="Delete Contact" icon="trash-outline" variant="danger" onPress={onDelete} />
       </View>
+      </>
+      )}
       <CardPhotoComposer ref={composerRef} />
     </ScrollView>
   );
@@ -361,7 +419,8 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   catRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: spacing.md },
-  catChip: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, maxWidth: 180 },
+  catChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, maxWidth: 180 },
+  eventChip: { backgroundColor: '#FDF2F8', borderWidth: 1, borderColor: '#F9A8D4' },
   catText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   name: { ...typography.title, marginTop: spacing.md, textAlign: 'center' },
   designation: { color: colors.textMuted, fontSize: 15, marginTop: 4, textAlign: 'center' },
