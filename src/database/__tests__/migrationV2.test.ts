@@ -36,14 +36,14 @@ describe('v2 data migration', () => {
     ]);
     const report = await migrateLegacyPhonesAndEmails(db as never);
 
-    expect(report).toMatchObject({ contacts: 3, phonesSource: 3, phonesCreated: 3, phonesNeedingReview: 1, emailsSource: 2, emailsCreated: 2 });
+    expect(report).toMatchObject({ contacts: 3, phonesSource: 3, phonesCreated: 3, phonesNeedingReview: 0, emailsSource: 2, emailsCreated: 2 });
     // columns: id, contact_id, label, country_iso, calling_code, national_number, e164, raw_input, needs_review, position, …
     const [indianMobile, usNumber, landline] = db.phones;
     expect(indianMobile!.slice(1, 9)).toEqual(['c1', 'mobile', 'IN', '91', '9876543210', '+919876543210', '+91 98765 43210', 0]);
-    expect(usNumber!.slice(3, 9)).toEqual([null, null, '4155550142', null, '(415) 555-0142', 1]);
+    expect(usNumber!.slice(1, 10)).toEqual(['c1', 'other', 'US', '1', '4155550142', '+14155550142', '(415) 555-0142', 0, 1]);
     expect(landline!.slice(3, 5)).toEqual(['IN', '91']);
     expect(db.emails[0]![2]).toBe('priya@nimbus.in');
-    expect(JSON.parse(db.meta.get('migration_v2_report')!).phonesNeedingReview).toBe(1);
+    expect(JSON.parse(db.meta.get('migration_v2_report')!).phonesNeedingReview).toBe(0);
   });
 
   it('fails (so the transaction rolls back) if any value was not carried over', async () => {

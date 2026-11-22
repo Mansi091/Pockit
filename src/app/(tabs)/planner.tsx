@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { colors, spacing } from '@/constants/theme';
 import SegmentedTabs from '@/components/SegmentedTabs';
@@ -42,6 +42,10 @@ export default function PlannerScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.appHeading}>
+        <Text style={styles.appTitle}>Planner</Text>
+        <Text style={styles.subtitle}>Make time for the people who matter.</Text>
+      </View>
       <SegmentedTabs
         value={tab}
         onChange={setTab}
@@ -62,4 +66,7 @@ export default function PlannerScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xxl },
+  appHeading: { marginBottom: spacing.md },
+  appTitle: { fontFamily: 'Manrope_700Bold', fontSize: 27, lineHeight: 34, letterSpacing: -1.2, color: colors.text },
+  subtitle: { fontFamily: 'Manrope_400Regular', fontSize: 11, color: colors.textMuted, marginTop: 4 },
 });

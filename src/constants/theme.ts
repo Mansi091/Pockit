@@ -1,21 +1,20 @@
 /**
- * Pockit design system — "modern minimal".
- * White surfaces, one strong accent (indigo), soft shadows, generous radius.
- * Change values here instead of hard-coding styles inside components.
+ * Pockit redesign system.
+ * Light, neutral surfaces with restrained charcoal actions and category colours.
  */
 export const colors = {
-  primary: '#4F46E5', // indigo — the single brand accent
-  primaryDark: '#4338CA',
-  primarySoft: '#EEF2FF',
-  accent: '#4F46E5', // kept as an alias so older screens stay on-brand
-  accentSoft: '#EEF2FF',
-  background: '#F7F8FA',
+  primary: '#292D26',
+  primaryDark: '#30372A',
+  primarySoft: '#F1F2EC',
+  accent: '#687C58',
+  accentSoft: '#E8F1E9',
+  background: '#F7F7F3',
   surface: '#FFFFFF',
-  surfaceMuted: '#F3F4F6',
-  border: '#E5E7EB',
-  text: '#0F172A',
-  textMuted: '#64748B',
-  textSubtle: '#94A3B8',
+  surfaceMuted: '#F1F2EC',
+  border: '#E9EAE3',
+  text: '#232522',
+  textMuted: '#797E71',
+  textSubtle: '#9A9E91',
   textOnPrimary: '#FFFFFF',
   danger: '#DC2626',
   dangerSoft: '#FEF2F2',
@@ -52,24 +51,24 @@ export const spacing = {
 
 export const radius = {
   sm: 10,
-  md: 14,
-  lg: 20,
+  md: 13,
+  lg: 18,
   pill: 999,
 } as const;
 
 export const typography = {
-  display: { fontSize: 28, fontWeight: '700' as const, color: colors.text, letterSpacing: -0.5 },
-  title: { fontSize: 24, fontWeight: '700' as const, color: colors.text, letterSpacing: -0.3 },
-  heading: { fontSize: 17, fontWeight: '600' as const, color: colors.text },
-  body: { fontSize: 15, color: colors.text },
-  label: { fontSize: 13, fontWeight: '600' as const, color: colors.textMuted },
-  caption: { fontSize: 12, color: colors.textMuted },
+  display: { fontFamily: 'Manrope_700Bold', fontSize: 28, fontWeight: '700' as const, color: colors.text, letterSpacing: -0.8 },
+  title: { fontFamily: 'Manrope_700Bold', fontSize: 24, fontWeight: '700' as const, color: colors.text, letterSpacing: -0.6 },
+  heading: { fontFamily: 'Manrope_700Bold', fontSize: 17, fontWeight: '700' as const, color: colors.text, letterSpacing: -0.3 },
+  body: { fontFamily: 'Manrope_400Regular', fontSize: 15, color: colors.text },
+  label: { fontFamily: 'Manrope_600SemiBold', fontSize: 13, fontWeight: '600' as const, color: colors.textMuted },
+  caption: { fontFamily: 'Manrope_400Regular', fontSize: 12, color: colors.textMuted },
 };
 
 export const shadow = {
-  shadowColor: '#0F172A',
-  shadowOpacity: 0.05,
+  shadowColor: '#293120',
+  shadowOpacity: 0.06,
   shadowRadius: 12,
-  shadowOffset: { width: 0, height: 4 },
-  elevation: 1,
+  shadowOffset: { width: 0, height: 5 },
+  elevation: 2,
 };

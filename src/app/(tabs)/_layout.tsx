@@ -39,12 +39,17 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
+            tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSubtle,
-        // No fixed height: React Navigation adds the bottom safe-area inset itself, so the bar
-        // sits above Android's 3-button / gesture navigation instead of underneath it.
-        tabBarStyle: { backgroundColor: colors.surface, borderTopWidth: 0, elevation: 12 },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+            tabBarStyle: {
+              backgroundColor: colors.surface,
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              elevation: 0,
+              shadowOpacity: 0,
+              paddingTop: 6,
+            },
+            tabBarLabelStyle: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, fontWeight: '600' },
         headerStyle: { backgroundColor: colors.background },
         headerShadowVisible: false,
         headerTintColor: colors.text,
@@ -82,16 +87,17 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   scanButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 38,
+    borderRadius: 11,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    marginTop: -3,
+    shadowColor: '#293120',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
 });

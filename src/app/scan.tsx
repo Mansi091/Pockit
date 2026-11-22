@@ -227,11 +227,11 @@ export default function ScanScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <EventModeBanner />
-      <Text style={styles.title}>Add a business card</Text>
+      <Text style={styles.title}>Someone new? Pockit them.</Text>
       <Text style={styles.subtitle}>
         {autoAvailable
           ? 'Pockit finds the card, crops away the background and straightens it for you. Start with the front.'
-          : 'Take or pick a photo of the front, then crop it so only the card is left.'}
+          : 'Scan a card, then check the details. It all starts with a good hello.'}
       </Text>
 
       <View style={styles.illustration}>

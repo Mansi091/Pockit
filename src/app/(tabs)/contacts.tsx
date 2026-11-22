@@ -63,6 +63,20 @@ export default function ContactsScreen() {
 
   return (
     <View style={styles.screen}>
+      <View style={styles.appHeading}>
+        <View>
+          <Text style={styles.appTitle}>Contacts</Text>
+          <Text style={styles.subtitle}>Good people, all in one place.</Text>
+        </View>
+        <Pressable
+          onPress={() => router.push('/review-contact')}
+          style={styles.addButton}
+          accessibilityRole="button"
+          accessibilityLabel="Add contact"
+        >
+          <Ionicons name="add" size={21} color={colors.primary} />
+        </Pressable>
+      </View>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={colors.textSubtle} />
         <TextInput
@@ -193,11 +207,33 @@ function Chip({ label, active, onPress, dot, activeColor, small }: {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  appHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  appTitle: { fontFamily: 'Manrope_700Bold', fontSize: 27, lineHeight: 34, letterSpacing: -1.2, color: colors.text },
+  subtitle: { fontFamily: 'Manrope_400Regular', fontSize: 11, color: colors.textMuted, marginTop: 4 },
+  addButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md + 2,
     marginHorizontal: spacing.lg,

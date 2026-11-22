@@ -3,7 +3,7 @@ jest.mock('@/database/db', () => ({ getDb: jest.fn() }));
 
 import { edgesToLines, packBubbles, ringLayout } from '@/utils/categoryLayout';
 import { hexToUuid } from '@/database/categoryRepository';
-import { validateCategoryName } from '@/services/categoryService';
+import { validateCategoryColor, validateCategoryName } from '@/services/categoryService';
 
 jest.mock('@/services/syncService', () => ({ requestSync: jest.fn() }));
 
@@ -64,5 +64,11 @@ describe('categories', () => {
     expect(validateCategoryName('  ')).toMatch(/name/);
     expect(validateCategoryName('x'.repeat(41))).toMatch(/40/);
     expect(validateCategoryName('Clients')).toBeNull();
+  });
+
+  it('validates category colours', () => {
+    expect(validateCategoryColor('#2563EB')).toBeNull();
+    expect(validateCategoryColor('blue')).toMatch(/hex/);
+    expect(validateCategoryColor('#FFF')).toMatch(/hex/);
   });
 });

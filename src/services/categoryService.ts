@@ -31,12 +31,19 @@ export const STARTER_CATEGORIES: { name: string; color: string; icon: string }[]
 ];
 
 export const MAX_NAME = 40;
+export const MAX_COLOR = 7;
 
 /** Returns an error message, or null when the name is acceptable. */
 export function validateCategoryName(name: string): string | null {
   const n = name.trim();
   if (!n) return 'Give the category a name.';
   if (n.length > MAX_NAME) return `Keep it under ${MAX_NAME} characters.`;
+  return null;
+}
+
+/** Stores colours as 6-digit hex values for consistent rendering and syncing. */
+export function validateCategoryColor(color: string): string | null {
+  if (!/^#[0-9A-Fa-f]{6}$/.test(color.trim())) return 'Choose a valid 6-digit hex colour, e.g. #2563EB.';
   return null;
 }
 

@@ -61,5 +61,5 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row', alignItems: 'center' },
   icon: { marginRight: spacing.sm },
-  text: { fontSize: 15, fontWeight: '600' },
+  text: { fontFamily: 'Manrope_600SemiBold', fontSize: 15, fontWeight: '600' },
 });

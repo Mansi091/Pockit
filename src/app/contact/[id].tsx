@@ -404,7 +404,7 @@ function Detail({ icon, label, value, last }: {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: spacing.xxl },
-  header: { alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  header: { alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md, marginBottom: 2 },
   star: {
     position: 'absolute',
     right: -6,
@@ -430,8 +430,10 @@ const styles = StyleSheet.create({
   qaIcon: {
     width: 52,
     height: 52,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
+    borderRadius: 26,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },

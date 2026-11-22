@@ -111,6 +111,10 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <View style={styles.appHeading}>
+        <Text style={styles.appTitle}>Settings</Text>
+        <Text style={styles.subtitle}>A space that is yours.</Text>
+      </View>
       <Section title="Account">
         <Row icon="person-circle-outline" label="Signed in as" value={session?.user.email ?? '—'} />
         <Row
@@ -200,6 +204,9 @@ function Row({ icon, label, value, last }: { icon: keyof typeof Ionicons.glyphMa
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
+  appHeading: { marginBottom: spacing.lg },
+  appTitle: { fontFamily: 'Manrope_700Bold', fontSize: 27, lineHeight: 34, letterSpacing: -1.2, color: colors.text },
+  subtitle: { fontFamily: 'Manrope_400Regular', fontSize: 11, color: colors.textMuted, marginTop: 4 },
   section: { marginBottom: spacing.xl },
   sectionTitle: { ...typography.label, textTransform: 'uppercase', marginBottom: spacing.sm, marginLeft: spacing.xs },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: spacing.md, ...shadow },

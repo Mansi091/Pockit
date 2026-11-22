@@ -11,7 +11,9 @@ import {
   createCategory,
   deleteCategory,
   MAX_NAME,
+  MAX_COLOR,
   updateCategory,
+  validateCategoryColor,
   validateCategoryName,
 } from '@/services/categoryService';
 import type { Category } from '@/types/contact';
@@ -36,6 +38,7 @@ export default function CategoryEditor({
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [color, setColor] = useState<string>(CATEGORY_COLORS[0]);
+  const [customColor, setCustomColor] = useState('');
   const [icon, setIcon] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,6 +47,7 @@ export default function CategoryEditor({
     if (!visible) return;
     setName(category?.name ?? '');
     setColor(category?.color ?? CATEGORY_COLORS[0]);
+    setCustomColor(category?.color ?? '');
     setIcon(category?.icon ?? null);
     setError(null);
   }, [visible, category]);
@@ -51,13 +55,16 @@ export default function CategoryEditor({
   const save = async () => {
     const problem = validateCategoryName(name);
     if (problem) return setError(problem);
+    const chosenColor = customColor.trim().toUpperCase();
+    const colorProblem = validateCategoryColor(chosenColor);
+    if (colorProblem) return setError(colorProblem);
     setBusy(true);
     try {
       if (category) {
-        await updateCategory(category.id, { name, color, icon });
-        onSaved?.({ ...category, name: name.trim(), color, icon });
+        await updateCategory(category.id, { name, color: chosenColor, icon });
+        onSaved?.({ ...category, name: name.trim(), color: chosenColor, icon });
       } else {
-        onSaved?.(await createCategory({ name, color, icon }));
+        onSaved?.(await createCategory({ name, color: chosenColor, icon }));
       }
       onClose();
     } catch (e) {
@@ -115,7 +122,11 @@ export default function CategoryEditor({
             {CATEGORY_COLORS.map((c) => (
               <Pressable
                 key={c}
-                onPress={() => setColor(c)}
+                onPress={() => {
+                  setColor(c);
+                  setCustomColor(c);
+                  setError(null);
+                }}
                 style={[styles.swatch, { backgroundColor: c }, c === color && styles.swatchSelected]}
                 accessibilityRole="button"
                 accessibilityLabel={`Colour ${c}`}
@@ -124,6 +135,27 @@ export default function CategoryEditor({
                 {c === color && <Ionicons name="checkmark" size={18} color="#fff" />}
               </Pressable>
             ))}
+          </View>
+
+          <Text style={styles.label}>Custom colour</Text>
+          <View style={styles.customColorRow}>
+            <View style={[styles.customColorPreview, { backgroundColor: color }]} />
+            <TextInput
+              value={customColor}
+              onChangeText={(value) => {
+                const next = value.trim();
+                setCustomColor(next);
+                setError(null);
+                if (/^#[0-9A-Fa-f]{6}$/.test(next)) setColor(next.toUpperCase());
+              }}
+              placeholder="#2563EB"
+              placeholderTextColor={colors.textSubtle}
+              maxLength={MAX_COLOR}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              style={styles.customColorInput}
+              accessibilityLabel="Custom category colour in hex"
+            />
           </View>
 
           <Text style={styles.label}>Icon (optional)</Text>
@@ -190,6 +222,17 @@ const styles = StyleSheet.create({
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: spacing.lg },
   swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   swatchSelected: { transform: [{ scale: 1.1 }] },
+  customColorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
+  customColorPreview: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border },
+  customColorInput: {
+    flex: 1,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: colors.text,
+  },
   iconBtn: {
     minWidth: 40,
     height: 40,

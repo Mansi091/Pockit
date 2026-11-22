@@ -75,16 +75,20 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>{greeting()} 👋</Text>
-          <Text style={styles.brand}>Pockit</Text>
+          <Text style={styles.brand}>pockit.</Text>
         </View>
         <Pressable
           onPress={() => router.push('/settings')}
           accessibilityLabel={`Settings and account ${emailName}`}
           style={styles.accountButton}
         >
-          <Ionicons name="settings-outline" size={20} color={colors.primary} />
+          <Ionicons name="settings-outline" size={19} color={colors.text} />
         </Pressable>
+      </View>
+      <View style={styles.welcome}>
+        <Text style={styles.eyebrow}>{greeting().toUpperCase()}</Text>
+        <Text style={styles.welcomeTitle}>Your network, {emailName ? emailName : 'at a glance'}<Text style={styles.greetingDot}>.</Text></Text>
+        <Text style={styles.welcomeSub}>Keep the people you meet close to you.</Text>
       </View>
 
       {error ? (
@@ -100,11 +104,25 @@ export default function HomeScreen() {
         <>
           <EventModeBanner />
 
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <DashboardCard label="Contacts" value={stats.totalContacts} icon="people-outline" />
-            <DashboardCard label="Scanned" value={stats.totalScannedCards} icon="scan-outline" />
-            <DashboardCard label="Companies" value={stats.uniqueCompanies} icon="business-outline" />
+          {/* Network summary */}
+          <View style={styles.networkCard}>
+            <View style={styles.networkTop}>
+              <Text style={styles.networkLabel}>YOUR NETWORK</Text>
+              <Ionicons name="people-outline" size={18} color={colors.textMuted} />
+            </View>
+            <View style={styles.networkStatRow}>
+              <Text style={styles.networkStat}>{stats.totalContacts}</Text>
+              <Text style={styles.networkStatLabel}>contacts</Text>
+            </View>
+            <View style={styles.networkBottom}>
+              <Text style={styles.networkMeta}>{stats.uniqueCompanies} companies · {stats.totalScannedCards} cards scanned</Text>
+              <View style={styles.miniAvatars}>
+                {recent.slice(0, 3).map((c) => (
+                  <Avatar key={c.id} name={c.personName} size={24} />
+                ))}
+                {recent.length === 0 && <View style={styles.miniAvatarEmpty} />}
+              </View>
+            </View>
           </View>
 
           {/* Primary action */}
@@ -221,18 +239,39 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.xl },
-  greeting: { fontSize: 14, color: colors.textMuted },
-  brand: { ...typography.display, marginTop: 2 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+  brand: { fontFamily: 'Manrope_800ExtraBold', fontSize: 25, color: colors.text, letterSpacing: -1.2 },
   accountButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.primarySoft,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statsRow: { flexDirection: 'row', gap: spacing.sm },
+  welcome: { marginBottom: spacing.lg },
+  eyebrow: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, letterSpacing: 1.6, color: colors.textMuted, marginBottom: 6 },
+  welcomeTitle: { fontFamily: 'Manrope_600SemiBold', fontSize: 24, lineHeight: 34, color: colors.text, letterSpacing: -1.1 },
+  greetingDot: { color: '#91A27E' },
+  welcomeSub: { fontFamily: 'Manrope_400Regular', fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  networkCard: {
+    backgroundColor: '#F1F2EC',
+    borderWidth: 1,
+    borderColor: '#E6E9DE',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  networkTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  networkLabel: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, letterSpacing: 1.2, color: colors.textMuted },
+  networkStatRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 4 },
+  networkStat: { fontFamily: 'Manrope_500Medium', fontSize: 52, lineHeight: 62, letterSpacing: -3, color: colors.text },
+  networkStatLabel: { fontFamily: 'Manrope_400Regular', fontSize: 10, color: colors.textMuted, marginLeft: 8 },
+  networkBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  networkMeta: { fontFamily: 'Manrope_400Regular', fontSize: 9, color: colors.textMuted },
+  miniAvatars: { flexDirection: 'row', alignItems: 'center' },
+  miniAvatarEmpty: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   scanCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -256,7 +295,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scanTitle: { color: colors.textOnPrimary, fontSize: 16, fontWeight: '700' },
-  scanSub: { color: '#C7D2FE', fontSize: 13, marginTop: 2 },
+  scanSub: { fontFamily: 'Manrope_400Regular', color: '#AEB5A5', fontSize: 10, marginTop: 3 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

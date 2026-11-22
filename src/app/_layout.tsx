@@ -2,6 +2,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useFonts, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { colors, spacing } from '@/constants/theme';
 import { isSupabaseConfigured } from '@/config/env';
 import { AuthProvider, useAuth } from '@/auth/AuthProvider';
@@ -24,8 +25,15 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { session, ready, mustSetPassword } = useAuth();
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+  });
 
-  if (!ready) {
+  if (!ready || !fontsLoaded) {
     return (
       <View style={styles.center}>
         <StatusBar style="dark" />
