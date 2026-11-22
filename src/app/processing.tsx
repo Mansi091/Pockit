@@ -40,7 +40,6 @@ export default function ProcessingScreen() {
   const [frontResult, setFrontResult] = useState<SideResult | null>(null);
   const [backResult, setBackResult] = useState<SideResult | null>(null);
   const [backFailed, setBackFailed] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
 
   const run = useCallback(async () => {
     if (!primary) {
@@ -99,19 +98,8 @@ export default function ProcessingScreen() {
     router.replace('/review-contact');
   };
 
-  const lines = (frontResult?.ocr?.lines.length ?? 0) + (backResult?.ocr?.lines.length ?? 0);
-  const countFields = (r: SideResult | null) => (r?.extraction ? Object.values(r.extraction.fields).filter(Boolean).length : 0);
-  // Fields found overall: the front's, plus what the back adds (or the back's alone in back-only mode).
-  const found = image
-    ? countFields(frontResult) +
-      mergeBackSide(
-        draftFromExtraction(frontResult?.extraction?.fields, null, null),
-        draftFromExtraction(backResult?.extraction?.fields, null, null),
-      ).added.length
-    : countFields(backResult);
   const rawText = joinOcrText(frontResult?.ocr?.text, backResult?.ocr?.text) ?? '';
   const empty = status === 'done' && !rawText.trim();
-  const rotation = frontResult?.ocr?.rotation ?? backResult?.ocr?.rotation;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -155,7 +143,7 @@ export default function ProcessingScreen() {
             <Text style={styles.bannerText}>
               {empty
                 ? 'No readable text was found. Try a sharper, well-lit photo, or enter the details manually.'
-                : `Read ${lines} line(s)${image && back ? ' from both sides' : ''}${found ? ` and identified ${found} field(s)` : ''}${rotation ? ` (image was rotated ${rotation}°)` : ''}. You'll review everything next.`}
+                  : 'Card scanned successfully. Check the detected details before saving.'}
             </Text>
           </View>
           {backFailed && (
@@ -163,23 +151,6 @@ export default function ProcessingScreen() {
               <Ionicons name="information-circle-outline" size={22} color={colors.warning} />
               <Text style={styles.bannerText}>The back side couldn't be read, but its image will still be saved.</Text>
             </View>
-          )}
-          {!empty && (
-            <>
-              <CustomButton
-                title={showRaw ? 'Hide raw OCR text' : 'Show raw OCR text'}
-                variant="ghost"
-                icon="document-text-outline"
-                onPress={() => setShowRaw((v) => !v)}
-              />
-              {showRaw && (
-                <View style={styles.rawBox}>
-                  <Text style={styles.rawText} selectable>
-                    {rawText}
-                  </Text>
-                </View>
-              )}
-            </>
           )}
         </>
       )}
@@ -235,7 +206,5 @@ const styles = StyleSheet.create({
   },
   bannerOk: { backgroundColor: colors.accentSoft },
   bannerText: { ...typography.body, flex: 1, lineHeight: 21 },
-  rawBox: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
-  rawText: { fontFamily: 'monospace', fontSize: 13, color: colors.text },
   actions: { gap: spacing.sm, marginTop: spacing.xl },
 });

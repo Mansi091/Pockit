@@ -134,4 +134,20 @@ describe('extractContact', () => {
     expect(fields.personName).not.toBe('');
     expect(lowConfidence).toContain('personName');
   });
+
+  it('uses layout and email evidence to identify a name generically', () => {
+    const { fields, lowConfidence } = extractContact(
+      card([
+        ['Global Sample Industries Pvt. Ltd.', 30],
+        ['Alex Morgan', 44],
+        ['Managing Director', 24],
+        'alex.morgan@globalsample.com',
+        'www.globalsample.com',
+      ]),
+    );
+    expect(fields.personName).toBe('Alex Morgan');
+    expect(fields.companyName).toBe('Global Sample Industries Pvt. Ltd.');
+    expect(fields.designation).toBe('Managing Director');
+    expect(lowConfidence).not.toContain('personName');
+  });
 });

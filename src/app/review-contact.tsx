@@ -68,7 +68,6 @@ export default function ReviewContactScreen() {
   const [rawOcr, setRawOcr] = useState<string | null>(null);
   const [lowConfidence, setLowConfidence] = useState<ContactField[]>([]);
   const [fromScan, setFromScan] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -157,7 +156,7 @@ export default function ReviewContactScreen() {
           website: d?.website ?? '',
           address: d?.address ?? '',
         };
-        const p = d?.phones.length ? d.phones : [{ label: 'mobile' as const, countryIso: 'IN', number: '' }];
+        const p = d?.phones.length ? d.phones : [{ label: 'mobile' as const, countryIso: null, number: '' }];
         const e = d?.emails.length ? d.emails : [];
         setText(t);
         setInitialText(t);
@@ -380,25 +379,9 @@ export default function ReviewContactScreen() {
           </View>
         )}
 
-        {!!rawOcr && (
-          <View style={styles.rawWrap}>
-            <CustomButton
-              title={showRaw ? 'Hide raw OCR text' : 'Show raw OCR text'}
-              variant="ghost"
-              icon="document-text-outline"
-              onPress={() => setShowRaw((v) => !v)}
-            />
-            {showRaw && (
-              <Text style={styles.rawText} selectable>
-                {rawOcr}
-              </Text>
-            )}
-          </View>
-        )}
-
         <View style={{ marginTop: spacing.lg }}>
           {nothingFound ? (
-            <FormError tone="info" message="Text was read, but no fields could be identified with confidence. Use 'Show raw OCR text' and copy what you need." />
+            <FormError tone="info" message="Text was read, but no fields could be identified with confidence. Enter the details manually." />
           ) : (
             <Text style={styles.hint}>
               {fromScan ? 'Fields were filled in automatically. Check each one — ' : ''}Leave anything you are unsure of blank.
@@ -500,16 +483,6 @@ const styles = StyleSheet.create({
   },
   eventStripText: { flex: 1, color: '#9D174D', fontWeight: '600', fontSize: 13 },
   content: { padding: spacing.lg, paddingBottom: spacing.xl },
-  rawWrap: { marginTop: spacing.sm },
-  rawText: {
-    fontFamily: 'monospace',
-    fontSize: 13,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
   hint: { ...typography.caption, marginBottom: spacing.lg },
   sideBadge: {
     position: 'absolute',

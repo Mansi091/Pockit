@@ -17,20 +17,34 @@ describe('classifyPhone (v2 migration rule: +91 only when confirmed Indian)', ()
     expect(c.needsReview).toBe(false);
   });
 
-  it('does NOT assume +91 for a US number written without a code', () => {
-    // "(415) 555-0142" is technically a valid Indian landline — the trap this rule avoids.
+  it('detects a formatted US number without assuming +91', () => {
     const c = classifyPhone('(415) 555-0142');
-    expect(c.countryIso).toBeNull();
-    expect(c.e164).toBeNull();
+    expect(c.countryIso).toBe('US');
+    expect(c.e164).toBe('+14155550142');
     expect(c.nationalNumber).toBe('4155550142');
-    expect(c.needsReview).toBe(true);
+    expect(c.needsReview).toBe(false);
   });
 
-  it('keeps an explicit foreign code but flags it for review', () => {
+  it('detects an explicit foreign code automatically', () => {
     const c = classifyPhone('+1 415 555 0142');
     expect(c.countryIso).toBe('US');
     expect(c.e164).toBe('+14155550142');
-    expect(c.needsReview).toBe(true);
+    expect(c.needsReview).toBe(false);
+  });
+
+  it('detects South Korean 010 and area-code numbers', () => {
+    expect(classifyPhone('010-7421-1123')).toMatchObject({
+      countryIso: 'KR',
+      callingCode: '82',
+      e164: '+821074211123',
+      needsReview: false,
+    });
+    expect(classifyPhone('(053) 324-9001')).toMatchObject({
+      countryIso: 'KR',
+      callingCode: '82',
+      e164: '+82533249001',
+      needsReview: false,
+    });
   });
 
   it('flags numbers that are too short to identify', () => {

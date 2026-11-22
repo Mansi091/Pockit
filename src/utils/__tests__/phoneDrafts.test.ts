@@ -34,12 +34,14 @@ describe('P8 phone drafts', () => {
   });
 
   it('turns OCR text into labelled drafts, flagging numbers whose country is unproven', () => {
-    const drafts = textToPhoneDrafts('+91 98765 43210, 020 2567 8900, (415) 555-0142, +1 415 555 0142');
+    const drafts = textToPhoneDrafts('+91 98765 43210, 020 2567 8900, (415) 555-0142, +1 415 555 0142, 010-7421-1123, (053) 324-9001');
     expect(drafts).toEqual([
       { label: 'mobile', countryIso: 'IN', number: '9876543210', needsReview: false },
       { label: 'work', countryIso: 'IN', number: '2025678900', needsReview: false },
-      { label: 'other', countryIso: 'IN', number: '(415) 555-0142', needsReview: true },
-      { label: 'other', countryIso: 'US', number: '4155550142', needsReview: false }, // US: can't tell mobile from landline
+      { label: 'other', countryIso: 'US', number: '4155550142', needsReview: false },
+      { label: 'other', countryIso: 'US', number: '4155550142', needsReview: false },
+      { label: 'mobile', countryIso: 'KR', number: '1074211123', needsReview: false },
+      { label: 'work', countryIso: 'KR', number: '533249001', needsReview: false },
     ]);
   });
 

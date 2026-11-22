@@ -2,18 +2,11 @@ import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/
 import type { ContactPhone, PhoneDraft, PhoneLabel } from '@/types/contact';
 
 /**
- * Phone-number classification shared by the v2 data migration and the
- * legacy-string → structured-rows bridge.
- *
- * Rule (from the product owner): only assign +91 when the number is
- * *confirmed* Indian. "Valid when parsed as Indian" is NOT enough — e.g.
- * "(415) 555-0142" (a US number) is a syntactically valid Indian landline.
- * Confirmation requires one of:
- *   - an explicit +91 / 0091 / 91XXXXXXXXXX prefix
- *   - a valid Indian MOBILE (10 digits starting 6–9, optional leading 0)
- *   - a leading STD trunk "0" AND valid as an Indian number (e.g. 020 2567 8900)
- * Anything else — including numbers with another explicit country code — is
- * stored as typed and flagged `needsReview` so the user can confirm it.
+ * Phone-number classification shared by OCR, drafts and the SQLite migration.
+ * Explicit international prefixes are authoritative. National numbers are
+ * inferred only from formats that are identifiable, for example Indian 10-digit
+ * mobiles and South Korean 010/area-code numbers. Ambiguous numbers stay
+ * unassigned instead of silently becoming Indian.
  */
 export interface ClassifiedPhone {
   rawInput: string;
@@ -61,7 +54,7 @@ export function classifyPhone(input: string): ClassifiedPhone {
   if (rawInput.startsWith('+') || digits.startsWith('00')) {
     const normalised = rawInput.startsWith('+') ? rawInput : `+${digits.slice(2)}`;
     const p = parsePhoneNumberFromString(normalised);
-    const result = fromParsed(rawInput, p, /* review unless India */ p?.country !== 'IN');
+    const result = fromParsed(rawInput, p, false);
     return result ?? unknown(rawInput);
   }
 
@@ -77,13 +70,34 @@ export function classifyPhone(input: string): ClassifiedPhone {
     if (p?.isValid() && p.getType() === 'MOBILE') return fromParsed(rawInput, p, false)!;
   }
 
-  // 4. Indian landline written with its STD trunk "0"
+  // 4. South Korean mobile and geographic numbers.
+  // This prevents "(053) 324-9001" and "010-7421-1123" from becoming Indian.
+  if (/^010\d{7,8}$/.test(digits)) {
+    const p = parsePhoneNumberFromString(digits, 'KR');
+    if (p?.isValid()) return fromParsed(rawInput, p, false)!;
+  }
+  if (/^0(?:2|3[1-3]|4[1-4]|5[1-5]|6[1-4])\d{7,8}$/.test(digits)) {
+    const kr = parsePhoneNumberFromString(digits, 'KR');
+    if (kr?.isValid()) return fromParsed(rawInput, kr, false)!;
+  }
+
+  // 5. Indian landline written with its STD trunk "0"
   if (digits.startsWith('0')) {
     const p = parsePhoneNumberFromString(digits, 'IN');
     if (p?.isValid()) return fromParsed(rawInput, p, false)!;
   }
 
-  // 5. No proof of country → keep as typed, ask the user
+  // 6. US/Canada national numbers when the formatting makes this identifiable.
+  if (/^\s*\(\d{3}\)[-\s]?\d{3}[-\s]?\d{4}\s*$/.test(rawInput)) {
+    const p = parsePhoneNumberFromString(digits, 'US');
+    if (p?.isValid()) return fromParsed(rawInput, p, false)!;
+  }
+  if (/^1\d{10}$/.test(digits)) {
+    const p = parsePhoneNumberFromString(digits, 'US');
+    if (p?.isValid()) return fromParsed(rawInput, p, false)!;
+  }
+
+  // 7. No proof of country → keep as typed, ask the user.
   return unknown(rawInput);
 }
 
@@ -104,7 +118,16 @@ export interface PhoneRowValues {
  */
 export function draftToRowValues(draft: Pick<PhoneDraft, 'countryIso' | 'number'>): PhoneRowValues {
   const raw = draft.number.trim().slice(0, 64);
-  const parsed = raw.startsWith('+')
+  const digits = digitsOf(raw);
+  const explicitInternational =
+    raw.startsWith('+')
+      ? raw
+      : digits.startsWith('00')
+        ? `+${digits.slice(2)}`
+        : null;
+  const parsed = explicitInternational
+    ? parsePhoneNumberFromString(explicitInternational)
+    : raw.startsWith('+')
     ? parsePhoneNumberFromString(raw)
     : draft.countryIso
       ? parsePhoneNumberFromString(raw, draft.countryIso as CountryCode)
@@ -171,8 +194,8 @@ export function fixMisreadPlus(candidate: string): string | null {
   return fixed?.isValid() ? fixed.formatInternational() : null;
 }
 
-/** Converts OCR/legacy text ("98765 43210, +1 415…") into editable drafts. Unknown countries default to India but are flagged. */
-export function textToPhoneDrafts(text: string | null | undefined, defaultCountry = 'IN'): PhoneDraft[] {
+/** Converts OCR/legacy text ("98765 43210, +1 415…") into editable drafts. */
+export function textToPhoneDrafts(text: string | null | undefined, defaultCountry: string | null = null): PhoneDraft[] {
   return splitLegacyPhones(text).map((raw) => {
     const c = classifyPhone(raw);
     return {

@@ -377,7 +377,7 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
     .filter(({ name }) => {
       const words = wordCount(name);
       return (
-        words >= 2 &&
+        words >= 1 &&
         words <= 4 &&
         name.length <= 40 &&
         /^[A-Za-z][A-Za-z.'\- ]+$/.test(name) &&
@@ -388,7 +388,13 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
     .map(({ l, name }) => {
       let score = 1;
       const tokens = name.toLowerCase().split(/[\s.]+/).filter((t) => t.length >= 2);
-      if (emailLocals.some((loc) => tokens.filter((t) => loc.includes(t)).length >= 1)) score += 3;
+      const compactName = lettersOnly(name);
+      const emailMatch = emailLocals.some((loc) => {
+        if (!compactName) return false;
+        if (loc.includes(compactName) || compactName.includes(loc)) return true;
+        return tokens.some((token) => loc.includes(token) || token.includes(loc));
+      });
+      if (emailMatch) score += 4;
       if (designation && Math.abs(designation.item.idx - l.idx) <= 1.1) score += 2;
       if (maxHeight && l.height) score += l.height >= maxHeight * 0.95 ? 2 : l.height >= maxHeight * 0.75 ? 1 : 0;
       if (isTitleCase(name) || isAllCaps(name)) score += 1;

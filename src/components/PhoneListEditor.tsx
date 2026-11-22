@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
-import { countryByIso, DEFAULT_COUNTRY, flagOf } from '@/data/countries';
+import { countryByIso, flagOf } from '@/data/countries';
 import CountryPicker from '@/components/CountryPicker';
 import OptionSheet from '@/components/OptionSheet';
 import { checkPhoneDraft } from '@/utils/phone';
@@ -37,7 +37,7 @@ export default function PhoneListEditor({
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
   const makeMain = (i: number) => onChange([value[i]!, ...value.filter((_, idx) => idx !== i)]);
   const add = () =>
-    onChange([...value, { label: value.length === 0 ? 'mobile' : 'work', countryIso: DEFAULT_COUNTRY, number: '' }]);
+    onChange([...value, { label: value.length === 0 ? 'mobile' : 'work', countryIso: null, number: '' }]);
 
   return (
     <View>
