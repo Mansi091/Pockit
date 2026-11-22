@@ -155,6 +155,22 @@ export function formatPhone(p: { e164: string | null; rawInput?: string | null; 
 /** Number to dial / message: E.164 when known, otherwise the digits as typed. */
 export const dialString = (p: { e164: string | null; nationalNumber: string }) => p.e164 ?? p.nationalNumber;
 
+/**
+ * OCR often reads the "+" of "+91 98672 99476" as a "4" → "491 9867299476".
+ * If the digits are NOT a valid number as written but become a valid
+ * international number once the leading 4 is treated as "+", return that.
+ */
+export function fixMisreadPlus(candidate: string): string | null {
+  const trimmed = candidate.trim();
+  if (trimmed.startsWith('+')) return null;
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits.startsWith('4') || digits.length < 10) return null;
+  const asWritten = parsePhoneNumberFromString(digits, 'IN');
+  if (asWritten?.isValid()) return null;
+  const fixed = parsePhoneNumberFromString(`+${digits.slice(1)}`);
+  return fixed?.isValid() ? fixed.formatInternational() : null;
+}
+
 /** Converts OCR/legacy text ("98765 43210, +1 415…") into editable drafts. Unknown countries default to India but are flagged. */
 export function textToPhoneDrafts(text: string | null | undefined, defaultCountry = 'IN'): PhoneDraft[] {
   return splitLegacyPhones(text).map((raw) => {

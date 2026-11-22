@@ -1,3 +1,4 @@
+import { fixMisreadPlus } from '@/utils/phone';
 import type { ContactField, ExtractionResult, OcrLine, OcrResult } from '@/types/contact';
 
 /**
@@ -128,6 +129,101 @@ function normaliseLines(ocr: OcrResult): Line[] {
     .filter((l) => l.text.length >= 2 && /[A-Za-z0-9]/.test(l.text));
 }
 
+// ── Misread "@" repair ───────────────────────────────────────────────
+// OCR regularly turns the "@" of "Hemant.Khurana@everestind.com" into letters
+// ("Hemant.Khuranaldeverestind.com"), which then looks like a website.
+// We rebuild it only with real evidence: an "E:/Email" label or the card's own
+// website domain, plus a local part that matches words printed on the card.
+
+const AT_GLYPHS = ['ld', 'la', 'cd', '(a)', '(a', 'a)', 'a', 'd', 'q', 'g', 'e', '@', '©', '®', '&'];
+const EMAIL_LABEL_RE = /^(?:e|email|e-mail|mail|email\s*id)\s*[:.\-]?\s+/i;
+const DOMAIN_RE = new RegExp(String.raw`^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:${TLDS})(?:\.[a-z]{2})?$`, 'i');
+const EXPLICIT_URL_RE = /^(?:https?:\/\/|www\.)/i;
+
+function cardWords(lines: Line[]): Set<string> {
+  const words = new Set<string>();
+  for (const l of lines) {
+    if (/\d|@/.test(l.text) || /\.[a-z]{2,}\b/i.test(l.text)) continue; // skip contact/URL lines
+    for (const w of l.text.toLowerCase().split(/[^a-z]+/)) if (w.length >= 2) words.add(w);
+  }
+  return words;
+}
+
+/** strict: "hemant.khurana" (every part printed on the card). loose: "hkhurana" (initials + surname). */
+function localMatches(local: string, words: Set<string>, loose: boolean): boolean {
+  const toks = local.toLowerCase().split(/[._-]+/).filter(Boolean);
+  if (!toks.length) return false;
+  if (!loose) return toks.every((t) => words.has(t)) && toks.some((t) => t.length >= 3);
+  const t = toks[toks.length - 1]!;
+  return [...words].some((w) => w.length >= 4 && t.endsWith(w) && t.length - w.length <= 2);
+}
+
+/** Finds where the local part ends inside "<local><misread @>". */
+function bestLocal(head: string, words: Set<string>): string | null {
+  for (const loose of [false, true]) {
+    for (const k of [0, 1, 2, 3]) {
+      if (k && !AT_GLYPHS.includes(head.slice(-k).toLowerCase())) continue;
+      const cand = head.slice(0, head.length - k).replace(/[._-]+$/, '');
+      if (cand && localMatches(cand, words, loose)) return cand;
+    }
+  }
+  // No name evidence: drop the most likely misread glyph, if there is one.
+  for (const g of ['ld', 'la', '©', '®', '&']) if (head.toLowerCase().endsWith(g)) return head.slice(0, -g.length);
+  return null;
+}
+
+function rebuildEmail(token: string, domains: string[], words: Set<string>, labelled: boolean): string | null {
+  if (token.includes('@') || EXPLICIT_URL_RE.test(token)) return null;
+  const lower = token.toLowerCase();
+  // 1. Ends with the card's own website domain (and isn't a subdomain of it).
+  for (const d of domains) {
+    if (lower.endsWith(d) && lower.length > d.length + 1 && lower[lower.length - d.length - 1] !== '.') {
+      const local = bestLocal(token.slice(0, token.length - d.length), words);
+      if (local) return `${local}@${d}`;
+    }
+  }
+  // 2. Labelled "E:" but no known domain: split after a local part made of the card's words.
+  if (!labelled) return null;
+  for (let i = 3; i < token.length - 4; i++) {
+    const local = token.slice(0, i);
+    if (!localMatches(local, words, false)) continue;
+    for (const g of AT_GLYPHS) {
+      const domain = lower.slice(i + g.length);
+      if (lower.startsWith(g, i) && DOMAIN_RE.test(domain)) return `${local}@${domain}`;
+    }
+  }
+  return null;
+}
+
+/** Rebuilds misread email addresses; reports whether anything was repaired. */
+function repairMisreadEmails(lines: Line[]): { lines: Line[]; repaired: boolean } {
+  const domains = unique(
+    lines.flatMap((l) =>
+      (repairContactText(l.text).match(URL_RE) ?? [])
+        .filter((u) => EXPLICIT_URL_RE.test(u))
+        .map((u) => u.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]!.toLowerCase()),
+    ),
+  );
+  const words = cardWords(lines);
+  let repaired = false;
+  const out = lines.map((line) => {
+    if (line.text.includes('@')) return line;
+    const label = EMAIL_LABEL_RE.exec(line.text);
+    const body = (label ? line.text.slice(label[0].length) : line.text).replace(/\s*([._-])\s*/g, '$1');
+    const tokens = label ? [body.replace(/\s+/g, '')] : body.split(/\s+/);
+    for (const t of tokens) {
+      if (!label && !domains.some((d) => t.toLowerCase().endsWith(d))) continue;
+      const email = rebuildEmail(t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ''), domains, words, !!label);
+      if (email) {
+        repaired = true;
+        return { ...line, text: email };
+      }
+    }
+    return line;
+  });
+  return { lines: out, repaired };
+}
+
 function domainStem(emailOrUrl: string): string | null {
   const host = emailOrUrl.includes('@')
     ? emailOrUrl.split('@')[1]!
@@ -163,7 +259,7 @@ function pickBest<T>(cands: { item: T; score: number }[], threshold: number, mar
 // ── Main ──────────────────────────────────────────────────────────────
 
 export function extractContact(ocr: OcrResult): ExtractionResult {
-  const lines = normaliseLines(ocr);
+  const { lines, repaired: emailRepaired } = repairMisreadEmails(normaliseLines(ocr));
   const lowConfidence: ContactField[] = [];
 
   const emails: string[] = [];
@@ -190,9 +286,10 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
     const isMobile = MOBILE_LABEL_RE.test(text);
     for (const m of text.match(PHONE_RE) ?? []) {
       for (const part of splitPhoneMatch(m)) {
-        const p = cleanPhone(part);
-        if (!p) continue;
+        const cleaned = cleanPhone(part);
+        if (!cleaned) continue;
         text = text.replace(part, ' ');
+        const p = fixMisreadPlus(cleaned) ?? cleaned; // "491 98672 99476" → "+91 98672 99476"
         if (isFax) continue;
         const digits = p.replace(/\D/g, '');
         // Indian mobiles: 10 digits starting 6–9 (optionally after +91 / 0)
@@ -308,7 +405,12 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
     designation: designation ? designation.item.text : null,
     phone: phones.length ? phones.join(', ') : null,
     email: emails.length ? unique(emails).join(', ') : null,
-    website: websites.length ? unique(websites.map((w) => w.toLowerCase()))[0]! : null,
+    // Prefer an explicit "www." / "https://" address over a bare domain.
+    website: websites.length
+      ? unique(websites.map((w) => w.toLowerCase())).sort(
+          (a, b) => Number(EXPLICIT_URL_RE.test(b)) - Number(EXPLICIT_URL_RE.test(a)),
+        )[0]!
+      : null,
     address: addressLines.length
       ? addressLines
           .sort((a, b) => a.idx - b.idx)
@@ -322,6 +424,7 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
   if (company && company.ambiguous) lowConfidence.push('companyName');
   if (designation && designation.ambiguous) lowConfidence.push('designation');
   if (addressLines.length === 1 && !PIN_RE.test(addressLines[0]!.text)) lowConfidence.push('address');
+  if (emailRepaired && emails.length) lowConfidence.push('email'); // rebuilt from a misread "@" — ask the user to check
 
   return { fields, lowConfidence };
 }
