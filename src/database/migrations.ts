@@ -60,6 +60,13 @@ const migrations: Migration[] = [
       await migrateLegacyPhonesAndEmails(db);
     },
   },
+  {
+    version: 3,
+    description: 'opt-in sharing with the company (contacts.shared_with_org)',
+    up: async (db) => {
+      await db.execAsync('ALTER TABLE contacts ADD COLUMN shared_with_org INTEGER NOT NULL DEFAULT 0;');
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = migrations[migrations.length - 1]!.version;

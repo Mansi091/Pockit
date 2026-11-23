@@ -124,3 +124,14 @@ Each area has its own screen; nothing is stacked onto one long page:
 ## Search
 
 Contacts search matches name, company, designation, website, address, every email, phone digits (spaces/dashes/+ ignored), category names, meeting notes/places and event names.
+
+
+## Companies and opt-in sharing (0005)
+
+- **Model:** a user belongs to at most one company, as `admin` (CEO / higher post) or `member`. Tables: `organizations`, `organization_members`, `organization_invites` (8-character codes, valid 14 days).
+- **Private by default:** `contacts.shared_with_org` is false unless the employee shares a contact (switch on the contact page) or turns on "Share new contacts automatically" (Settings → Company, off by default).
+- **What admins can read:** shared contacts, their phones, emails, events and card images; read-only. Notes, follow-ups and categories are never shared. For unshared contacts admins only get counts (`org_member_stats()`).
+- **Membership changes** only go through SECURITY DEFINER functions: `create_organization`, `join_organization`, `leave_organization`, `create_org_invite`, `remove_org_member`, `set_org_member_role`. Leaving or being removed un-shares all of that person's contacts. The last admin leaving hands admin to the longest-standing member.
+- **Sync safety:** pulls are filtered to `user_id = me`, so an admin's phone never downloads other people's shared contacts into their own address book.
+- **Sharing needs cloud backup on**; the Company page warns about this.
+- **Next:** a web dashboard (Next.js + the same Supabase) for admins (overview, team, shared contacts, Excel export), plus Excel export in the app (needs `expo-sharing`, i.e. one new native build).

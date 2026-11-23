@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
@@ -9,6 +9,7 @@ import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import OptionSheet from '@/components/OptionSheet';
 import SegmentedTabs from '@/components/SegmentedTabs';
+import { getCachedOrganization, setContactShared, type MyOrganization } from '@/services/orgService';
 import ContactNotesTab from '@/components/contact/ContactNotesTab';
 import ContactFollowUpsTab from '@/components/contact/ContactFollowUpsTab';
 import { getEventsForContact, getFollowUps, getNotes, type EventWithCount, type ReminderWithContact } from '@/services/activityService';
@@ -35,6 +36,7 @@ export default function ContactProfileScreen() {
   const [notes, setNotes] = useState<Interaction[]>([]);
   const [followUps, setFollowUps] = useState<ReminderWithContact[]>([]);
   const [events, setEvents] = useState<EventWithCount[]>([]);
+  const [org, setOrg] = useState<MyOrganization | null>(null);
   const version = useContactsVersion();
   const [contact, setContact] = useState<Contact | null | undefined>(undefined); // undefined = loading
   const [phones, setPhones] = useState<ContactPhone[]>([]);
@@ -56,7 +58,8 @@ export default function ContactProfileScreen() {
       const all = details?.categoryIds.length ? await getCategories() : [];
       setContactCategories(all.filter((c) => details!.categoryIds.includes(c.id)));
       if (details) {
-        const [n, f, e] = await Promise.all([getNotes(id), getFollowUps(id), getEventsForContact(id)]);
+        const [n, f, e, o] = await Promise.all([getNotes(id), getFollowUps(id), getEventsForContact(id), getCachedOrganization()]);
+        setOrg(o);
         setNotes(n);
         setFollowUps(f);
         setEvents(e);
@@ -295,6 +298,31 @@ You can take a photo and crop it to the card instead.`, [
         <Detail icon="briefcase-outline" label="Designation" value={contact.designation} last />
       </View>
 
+      {org && (
+        <View style={styles.shareCard}>
+          <Ionicons
+            name={contact.sharedWithOrg ? 'people' : 'lock-closed-outline'}
+            size={20}
+            color={contact.sharedWithOrg ? colors.accent : colors.textMuted}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shareTitle}>Share with {org.name}</Text>
+            <Text style={styles.shareSub}>
+              {contact.sharedWithOrg
+                ? 'Your company admins can see this contact. Notes and follow-ups stay private.'
+                : 'Private — only you can see this contact.'}
+            </Text>
+          </View>
+          <Switch
+            value={contact.sharedWithOrg}
+            onValueChange={(v) => setContactShared(contact.id, v)}
+            trackColor={{ true: colors.accent, false: colors.border }}
+            thumbColor={colors.surface}
+            accessibilityLabel={`Share with ${org.name}`}
+          />
+        </View>
+      )}
+
       <Text style={styles.sectionTitle}>Original card</Text>
       <View style={{ marginHorizontal: spacing.lg, gap: spacing.sm }}>
         <ImagePreview uri={contact.cardImagePath} height={200} emptyText="No card image saved" />
@@ -420,6 +448,19 @@ const styles = StyleSheet.create({
   },
   catRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: spacing.md },
   catChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, maxWidth: 180 },
+  shareCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    ...shadow,
+  },
+  shareTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  shareSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 17 },
   eventChip: { backgroundColor: '#FDF2F8', borderWidth: 1, borderColor: '#F9A8D4' },
   catText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   name: { ...typography.title, marginTop: spacing.md, textAlign: 'center' },

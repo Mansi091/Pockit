@@ -29,6 +29,8 @@ export interface ContactRow {
   card_back_image_path: string | null;
   remote_back_image_path: string | null;
   back_image_needs_push: number;
+  // v3
+  shared_with_org: number;
 }
 
 export const toContact = (r: ContactRow): Contact => ({
@@ -44,6 +46,7 @@ export const toContact = (r: ContactRow): Contact => ({
   nativeContactId: r.native_contact_id,
   rawOcrText: r.raw_ocr_text,
   isFavourite: r.is_favourite === 1,
+  sharedWithOrg: r.shared_with_org === 1,
   cardBackImagePath: r.card_back_image_path,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -55,12 +58,30 @@ export async function insertContact(c: Contact): Promise<void> {
   await getDb().runAsync(
     `INSERT INTO contacts (id, person_name, company_name, designation, phone, email, website, address,
        card_image_path, native_contact_id, raw_ocr_text, is_favourite, created_at, updated_at, needs_push, image_needs_push,
-       card_back_image_path, back_image_needs_push)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+       card_back_image_path, back_image_needs_push, shared_with_org)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
     c.id, c.personName, c.companyName, c.designation, c.phone, c.email, c.website, c.address,
     c.cardImagePath, c.nativeContactId, c.rawOcrText, c.isFavourite ? 1 : 0, c.createdAt, c.updatedAt, c.cardImagePath ? 1 : 0,
-    c.cardBackImagePath, c.cardBackImagePath ? 1 : 0,
+    c.cardBackImagePath, c.cardBackImagePath ? 1 : 0, c.sharedWithOrg ? 1 : 0,
   );
+}
+
+/** Share / unshare with the company. Synced, so the change reaches the cloud. */
+export async function setSharedWithOrg(id: string, shared: boolean, now: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE contacts SET shared_with_org = ?, updated_at = ?, needs_push = 1 WHERE id = ? AND ${ALIVE}`,
+    shared ? 1 : 0, now, id,
+  );
+}
+
+/** After leaving a company: un-share locally too (the server already did, with a newer updated_at). */
+export async function clearAllSharedLocally(): Promise<void> {
+  await getDb().runAsync('UPDATE contacts SET shared_with_org = 0 WHERE shared_with_org = 1');
+}
+
+export async function countShared(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM contacts WHERE ${ALIVE} AND shared_with_org = 1`);
+  return row?.n ?? 0;
 }
 
 /** Star / unstar. Synced (is_favourite is a contacts column in the cloud). */

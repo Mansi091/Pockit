@@ -14,9 +14,9 @@ export const SYNC_TABLES: readonly TableSpec[] = [
     columns: [
       'person_name', 'company_name', 'designation',
       'phone', 'email', // legacy summary columns — kept until the "contract" migration
-      'website', 'address', 'raw_ocr_text', 'is_favourite', ...TIMESTAMPS,
+      'website', 'address', 'raw_ocr_text', 'is_favourite', 'shared_with_org', ...TIMESTAMPS,
     ],
-    booleans: ['is_favourite'],
+    booleans: ['is_favourite', 'shared_with_org'],
     timestamps: TIMESTAMPS,
     images: [
       { column: 'card_image_path', remoteColumn: 'remote_image_path', flag: 'image_needs_push', suffix: '' },

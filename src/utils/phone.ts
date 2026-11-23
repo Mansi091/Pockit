@@ -76,9 +76,16 @@ export function classifyPhone(input: string): ClassifiedPhone {
     const p = parsePhoneNumberFromString(digits, 'KR');
     if (p?.isValid()) return fromParsed(rawInput, p, false)!;
   }
+  // Korean area codes overlap Indian STD codes (033 Kolkata, 044 Chennai, 0532, 0612…).
+  // Indian landlines with the trunk "0" are ALWAYS 11 digits, so an 11-digit number
+  // that is valid in India stays Indian (Pockit is India-first); 9–10 digit ones can't
+  // be Indian and are tried as Korean.
   if (/^0(?:2|3[1-3]|4[1-4]|5[1-5]|6[1-4])\d{7,8}$/.test(digits)) {
-    const kr = parsePhoneNumberFromString(digits, 'KR');
-    if (kr?.isValid()) return fromParsed(rawInput, kr, false)!;
+    const validInIndia = digits.length === 11 && !!parsePhoneNumberFromString(digits, 'IN')?.isValid();
+    if (!validInIndia) {
+      const kr = parsePhoneNumberFromString(digits, 'KR');
+      if (kr?.isValid()) return fromParsed(rawInput, kr, false)!;
+    }
   }
 
   // 5. Indian landline written with its STD trunk "0"

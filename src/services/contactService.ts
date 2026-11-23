@@ -6,6 +6,7 @@ import * as categories from '@/database/categoryRepository';
 import { BACK_SUFFIX, deleteImage, persistCardImage } from '@/services/imageService';
 import { emitContactsChanged } from '@/services/dataEvents';
 import { requestSync } from '@/services/syncService';
+import { shouldShareNewContact } from '@/services/orgService';
 import { draftToRowValues, formatPhone, phoneMatchKey } from '@/utils/phone';
 import type {
   Contact,
@@ -157,6 +158,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
     nativeContactId: null,
     rawOcrText: data.rawOcrText,
     isFavourite: !!data.isFavourite,
+    sharedWithOrg: await shouldShareNewContact(), // private unless the user opted in
     cardBackImagePath,
     createdAt: ts,
     updatedAt: ts,

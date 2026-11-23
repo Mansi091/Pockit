@@ -19,4 +19,6 @@ export const META = {
   lastPulledAt: 'last_pulled_at', // server timestamp cursor
   lastSyncedAt: 'last_synced_at', // device time of last successful sync (for display)
   activeEventId: 'active_event_id', // P12 event mode on THIS device (not synced)
+  organization: 'organization', // JSON cache of my company membership (offline display)
+  shareNewContacts: 'share_new_contacts', // '1' = share newly saved contacts with my company (default off)
 } as const;

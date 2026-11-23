@@ -34,6 +34,8 @@ their own rows) and gives anonymous visitors none.
 
 Then run `supabase/migrations/0004_phone_label_personal.sql` (P8) — it allows the "Personal" phone label.
 
+Then run `supabase/migrations/0005_organizations.sql` — companies, roles (admin/member), invite codes and opt-in contact sharing. **Run it before using an app version that has Settings → Company**: the app now syncs a `shared_with_org` column, and sync pauses with a "cloud update needed" message until 0005 is applied.
+
 ## 2. Switch auth emails to 6-digit codes
 
 The app asks users to type a code from the email (works everywhere, no deep links).

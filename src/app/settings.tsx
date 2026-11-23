@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { getCachedOrganization, type MyOrganization } from '@/services/orgService';
 import Constants from 'expo-constants';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
@@ -28,10 +29,12 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState<'signout' | 'delete' | null>(null);
   const [counts, setCounts] = useState<{ contacts: number; files: number; bytes: number } | null>(null);
   const userId = session?.user.id ?? '';
+  const [org, setOrg] = useState<MyOrganization | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       isBackupEnabled().then(setBackupOn).catch(() => setBackupOn(false));
+      getCachedOrganization().then(setOrg).catch(() => setOrg(null));
       getDashboardStats()
         .then((s) => setCounts({ contacts: s.totalContacts, ...storageUsage(userId) }))
         .catch(() => setCounts(null));
@@ -123,6 +126,23 @@ export default function SettingsScreen() {
           value={session?.user.app_metadata?.provider === 'google' ? 'Google' : 'Email & password'}
           last
         />
+      </Section>
+
+      <Section title="Company">
+        <Pressable
+          onPress={() => router.push('/company')}
+          style={({ pressed }) => [styles.row, { borderBottomWidth: 0 }, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="business-outline" size={20} color={colors.accent} style={styles.rowIcon} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>{org ? org.name : 'Work with your team'}</Text>
+            <Text style={styles.rowValue}>
+              {org ? `${org.role === 'admin' ? 'Admin' : 'Member'} · tap to manage sharing` : 'Create or join a company to share chosen contacts'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+        </Pressable>
       </Section>
 
       <Section title="Cloud backup">

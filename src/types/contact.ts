@@ -15,6 +15,8 @@ export interface Contact {
   nativeContactId: string | null; // id in the phone's Contacts app, if saved there
   rawOcrText: string | null;
   isFavourite: boolean;
+  /** Opt-in: visible to this user's company admins (0005). Private by default. */
+  sharedWithOrg: boolean;
   cardBackImagePath: string | null; // local file URI of the card's reverse side
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601

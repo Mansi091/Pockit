@@ -47,6 +47,25 @@ describe('classifyPhone (v2 migration rule: +91 only when confirmed Indian)', ()
     });
   });
 
+  it('keeps Indian landlines Indian even when the STD code looks Korean', () => {
+    // Regression: these were detected as South Korea (+82).
+    for (const [n, e164] of [
+      ['033 2229 1234', '+913322291234'], // Kolkata
+      ['044 2811 1234', '+914428111234'], // Chennai
+      ['0532 2461234', '+915322461234'], // Prayagraj
+      ['0612 2234567', '+916122234567'], // Patna
+      ['0431 2412345', '+914312412345'], // Tiruchirappalli
+      ['022 2345 6789', '+912223456789'], // Mumbai
+    ] as const) {
+      expect(classifyPhone(n)).toMatchObject({ countryIso: 'IN', e164 });
+    }
+  });
+
+  it('still detects shorter Korean landlines (they cannot be Indian)', () => {
+    expect(classifyPhone('02-123-4567')).toMatchObject({ countryIso: 'KR' }); // Seoul, 9 digits
+    expect(classifyPhone('(053) 324-9001')).toMatchObject({ countryIso: 'KR' }); // Daegu, 10 digits
+  });
+
   it('flags numbers that are too short to identify', () => {
     const c = classifyPhone('12345');
     expect(c.needsReview).toBe(true);

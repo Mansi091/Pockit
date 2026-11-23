@@ -63,6 +63,7 @@ function RootNavigator() {
           <Stack.Screen name="contact/[id]" options={{ title: 'Contact Profile' }} />
           <Stack.Screen name="event/[id]" options={{ title: 'Event' }} />
           <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+          <Stack.Screen name="company" options={{ title: 'Company' }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!signedIn}>

@@ -16,9 +16,12 @@ function isMissingTable(error: { code?: string; message?: string }): boolean {
 export function supabaseRemoteStore(sb: SupabaseClient, userId: string): RemoteStore {
   return {
     async pull(table, cursor, limit) {
+      // Explicitly MY rows only. Since 0005, company admins can also READ members'
+      // shared contacts — those must never be pulled into the admin's own address book.
       const { data, error } = await sb
         .from(table)
         .select('*')
+        .eq('user_id', userId)
         .gt('server_updated_at', cursor)
         .order('server_updated_at', { ascending: true })
         .limit(limit);
