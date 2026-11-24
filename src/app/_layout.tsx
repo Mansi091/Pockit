@@ -76,7 +76,6 @@ function RootNavigator() {
           <Stack.Screen name="event/[id]" options={{ title: 'Event' }} />
           <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           <Stack.Screen name="company" options={{ title: 'Company' }} />
-          <Stack.Screen name="admin" options={{ title: 'Super Admin' }} />
           <Stack.Screen name="batch" options={{ title: 'Batch scan' }} />
         </Stack.Protected>
 

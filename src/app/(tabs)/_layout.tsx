@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { router, Tabs } from 'expo-router';
+import { router, Tabs, usePathname, type Href } from 'expo-router';
+import { isSuperAdmin } from '@/services/superAdminService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '@/constants/theme';
 import { useContactsVersion } from '@/services/dataEvents';
@@ -8,6 +9,10 @@ import { refreshNotifications } from '@/services/activityService';
 import { initNotifications, onNotificationTap } from '@/services/notificationService';
 import WebSidebar from '@/web/components/WebSidebar';
 import { CONTENT_MAX, SIDEBAR_WIDTH, useWebLayout } from '@/web/hooks/useWebLayout';
+
+// Home stays the starting tab for everyone, even though "admin" is declared first
+// (so it sits at the top of the Super Admin's sidebar).
+export const unstable_settings = { initialRouteName: 'index' };
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const icon =
@@ -18,6 +23,8 @@ const icon =
 
 /**
  * Bottom navigation: Home · Contacts · (Scan) · Planner · Categories.
+ * Website + Super Admin: a "Dashboard" item sits first in the sidebar and opens
+ * right after sign-in. Everyone else never sees it (phones reach it from Settings).
  * Settings opens from the gear on Home. Each area has its own screen —
  * Planner splits into Follow-ups / Calendar / Events tabs at the top.
  */
@@ -26,6 +33,25 @@ export default function TabLayout() {
   // Desktop website: left sidebar + centred content; phones keep the bottom bar.
   const { isWide, width, gutter } = useWebLayout();
   const sidePad = gutter(width - SIDEBAR_WIDTH, CONTENT_MAX);
+  const pathname = usePathname();
+  const [superAdmin, setSuperAdmin] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    isSuperAdmin().then((ok) => live && setSuperAdmin(ok));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Open the dashboard once per sign-in (first landing on Home), not every time
+  // Home is opened afterwards. The tabs remount on each sign-in, resetting this.
+  const openedDashboard = useRef(false);
+  useEffect(() => {
+    if (!superAdmin || !isWide || openedDashboard.current) return;
+    openedDashboard.current = true;
+    if (pathname === '/') router.replace('/admin' as Href);
+  }, [superAdmin, isWide, pathname]);
 
   // Follow-up notifications: set up once, open the contact when one is tapped…
   useEffect(() => {
@@ -67,6 +93,17 @@ export default function TabLayout() {
           : { backgroundColor: colors.background },
       }}
     >
+      <Tabs.Screen
+        name="admin"
+        options={{
+          title: isWide ? 'Dashboard' : 'Super Admin',
+          headerShown: !isWide, // phone: titled screen opened from Settings
+          // Only the Pockit owner on the website gets the tab; the screen itself
+          // still checks with the database before showing anything.
+          href: superAdmin && isWide ? undefined : null,
+          tabBarIcon: icon('shield-checkmark', 'shield-checkmark-outline'),
+        }}
+      />
       <Tabs.Screen name="index" options={{ title: 'Home', headerShown: false, tabBarIcon: icon('home', 'home-outline') }} />
       <Tabs.Screen name="contacts" options={{ title: 'Contacts', tabBarIcon: icon('people', 'people-outline') }} />
       <Tabs.Screen

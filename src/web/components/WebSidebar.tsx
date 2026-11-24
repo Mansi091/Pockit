@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect, type Href } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { isSuperAdmin } from '@/services/superAdminService';
 import type { BottomTabBarProps } from 'expo-router/build/layouts/Tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -13,7 +13,8 @@ import { fullNameOf } from '@/auth/userName';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
-const ITEMS: Record<string, { label: string; icon: IconName; active: IconName }> = {
+const ITEMS: Record<string, { label: string; icon: IconName; active: IconName; superAdminOnly?: boolean }> = {
+  admin: { label: 'Dashboard', icon: 'shield-checkmark-outline', active: 'shield-checkmark', superAdminOnly: true },
   index: { label: 'Home', icon: 'home-outline', active: 'home' },
   contacts: { label: 'Contacts', icon: 'people-outline', active: 'people' },
   planner: { label: 'Planner', icon: 'calendar-outline', active: 'calendar' },
@@ -98,6 +99,7 @@ export default function WebSidebar({ state, emitter, navigateToTab }: BottomTabB
         {state.routes.map((route, index) => {
           const item = ITEMS[route.name];
           if (!item) return null; // the "new" (scan) placeholder tab
+          if (item.superAdminOnly && !superAdmin) return null;
           const focused = state.index === index;
           return (
             <Pressable
@@ -115,12 +117,6 @@ export default function WebSidebar({ state, emitter, navigateToTab }: BottomTabB
       </View>
 
       <View style={styles.bottom}>
-        {superAdmin && (
-          <Pressable onPress={() => router.push('/admin' as Href)} style={({ hovered }) => [styles.item, hovered && styles.itemHover]} accessibilityRole="link">
-            <Ionicons name="shield-checkmark-outline" size={19} color={colors.accent} />
-            <Text style={[styles.itemText, { color: colors.accent }]}>Super Admin</Text>
-          </Pressable>
-        )}
         <Pressable onPress={() => router.push('/company')} style={({ hovered }) => [styles.item, hovered && styles.itemHover]} accessibilityRole="link">
           <Ionicons name="business-outline" size={19} color={colors.textMuted} />
           <Text style={styles.itemText} numberOfLines={1}>{org ? org.name : 'Company'}</Text>

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { router, Stack, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import SegmentedTabs from '@/components/SegmentedTabs';
@@ -85,7 +85,7 @@ export default function SuperAdminScreen() {
         icon="lock-closed-outline"
         title="Super Admin only"
         message="This dashboard is for the owner of Pockit. Your account doesn't have access."
-        action={<CustomButton title="Go back" variant="outline" onPress={() => router.back()} />}
+        action={<CustomButton title="Go to Home" variant="outline" onPress={() => router.replace('/')} />}
       />
     );
   }
@@ -94,7 +94,6 @@ export default function SuperAdminScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Stack.Screen options={{ title: 'Super Admin' }} />
 
       <View style={styles.hero}>
         <View style={styles.badge}>
