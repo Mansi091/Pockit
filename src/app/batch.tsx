@@ -8,7 +8,7 @@ import CustomButton from '@/components/CustomButton';
 import ImagePreview from '@/components/ImagePreview';
 import EventModeBanner from '@/components/EventModeBanner';
 import OptionSheet from '@/components/OptionSheet';
-import { batchScan, needsAttention, saveAllReady, useBatch, type BatchItem } from '@/services/batchScan';
+import { batchScan, canJoinWithPrevious, needsAttention, saveAllReady, useBatch, type BatchItem } from '@/services/batchScan';
 import { captureMany, type BatchSource } from '@/services/cardCapture';
 import { isDocumentScannerAvailable, ScannerUnavailableError } from '@/services/documentScannerService';
 import { scanSession } from '@/services/scanSession';
@@ -171,6 +171,13 @@ export default function BatchScreen() {
               >
                 <View>
                   <ImagePreview uri={item.image.uri} height={isWide ? 130 : 96} />
+                  {item.back && (
+                    // Back side of the same card, as a small second photo.
+                    <View style={styles.backThumb} accessibilityLabel="Back side">
+                      <ImagePreview uri={item.back.uri} height={isWide ? 52 : 40} />
+                      <Text style={styles.backThumbText}>BACK</Text>
+                    </View>
+                  )}
                   <View style={[styles.status, { backgroundColor: st.bg }]}>
                     {item.status === 'reading' || item.status === 'saving' ? (
                       <ActivityIndicator size="small" color={st.color} />
@@ -186,9 +193,11 @@ export default function BatchScreen() {
                   )}
                 </View>
                 <View style={styles.tileBody}>
-                  {item.status === 'waiting' || item.status === 'reading' ? (
-                    <Text style={styles.muted}>Card {index + 1}</Text>
-                  ) : item.status === 'failed' ? (
+                  <Text style={styles.cardNo}>
+                    Card {index + 1}
+                    {item.back ? ' · front + back' : ''}
+                  </Text>
+                  {item.status === 'waiting' || item.status === 'reading' ? null : item.status === 'failed' ? (
                     <>
                       <Text style={[styles.muted, { color: colors.danger }]} numberOfLines={2}>{item.error}</Text>
                       <Text style={styles.action}>Tap to try again</Text>
@@ -206,6 +215,25 @@ export default function BatchScreen() {
                         <Text style={styles.action}>Tap to check & save</Text>
                       ) : null}
                     </>
+                  )}
+                  {/* Two photos of ONE card → one contact. */}
+                  {canJoinWithPrevious(items, index) && (
+                    <Pressable
+                      onPress={() => batchScan.joinWithPrevious(item.id)}
+                      hitSlop={6}
+                      style={({ hovered }) => [styles.joinBtn, hovered && { backgroundColor: colors.surfaceMuted }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`This photo is the back of card ${index}`}
+                    >
+                      <Ionicons name="git-merge-outline" size={14} color={colors.accent} />
+                      <Text style={styles.joinText}>Back of card {index}</Text>
+                    </Pressable>
+                  )}
+                  {item.back && item.status !== 'saved' && item.status !== 'saving' && item.status !== 'reading' && (
+                    <Pressable onPress={() => batchScan.separate(item.id)} hitSlop={6} style={styles.joinBtn} accessibilityRole="button">
+                      <Ionicons name="git-branch-outline" size={14} color={colors.textMuted} />
+                      <Text style={[styles.joinText, { color: colors.textMuted }]}>Separate front and back</Text>
+                    </Pressable>
                   )}
                 </View>
               </Pressable>
@@ -271,6 +299,11 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontWeight: '700' },
   removeBtn: { position: 'absolute', right: 8, top: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
   tileBody: { padding: spacing.md, gap: 2, minHeight: 76 },
+  cardNo: { fontSize: 11, fontWeight: '700', color: colors.textSubtle, textTransform: 'uppercase', letterSpacing: 0.5 },
+  backThumb: { position: 'absolute', right: 8, bottom: 8, width: 64, borderRadius: 6, overflow: 'hidden', borderWidth: 2, borderColor: '#FFFFFF' },
+  backThumbText: { position: 'absolute', left: 0, right: 0, bottom: 0, textAlign: 'center', fontSize: 9, fontWeight: '800', color: '#FFFFFF', backgroundColor: 'rgba(0,0,0,0.55)' },
+  joinBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 6, paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+  joinText: { fontSize: 12, fontWeight: '700', color: colors.accent },
   name: { fontSize: 15, fontWeight: '700', color: colors.text },
   muted: { fontSize: 12, color: colors.textMuted },
   action: { fontSize: 12, fontWeight: '700', color: colors.accent, marginTop: 4 },
