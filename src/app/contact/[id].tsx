@@ -18,6 +18,7 @@ import { deleteContact, getContactDetails, linkNativeContact, setFavourite } fro
 import { getCategories, type CategoryWithCount } from '@/services/categoryService';
 import { attachCardPhotoToPhoneContact, openPhoneContact, phoneContactExists, saveToPhoneContacts } from '@/services/nativeContactsService';
 import { useContactsVersion } from '@/services/dataEvents';
+import { isBackupEnabled, setBackupEnabled, useSyncStatus } from '@/services/syncService';
 import { CAPTURE_LABEL, captureCard, captureSources, type CaptureSource } from '@/services/cardCapture';
 import { ScannerUnavailableError } from '@/services/documentScannerService';
 import { scanSession } from '@/services/scanSession';
@@ -37,6 +38,42 @@ export default function ContactProfileScreen() {
   const [followUps, setFollowUps] = useState<ReminderWithContact[]>([]);
   const [events, setEvents] = useState<EventWithCount[]>([]);
   const [org, setOrg] = useState<MyOrganization | null>(null);
+  const sync = useSyncStatus();
+  // A shared contact only reaches the company through the cloud — say so when it can't.
+  const shareProblem =
+    sync.state === 'disabled'
+      ? 'Not sent yet — cloud backup is off. Turn it on in Settings so your company can see it.'
+      : sync.state === 'offline'
+        ? 'Waiting for internet to send this to your company.'
+        : sync.state === 'error'
+          ? `Not sent yet: ${sync.error ?? 'cloud backup failed'}.`
+          : null;
+
+  const onToggleShare = async (on: boolean) => {
+    if (!contact || !org) return;
+    if (on && !(await isBackupEnabled())) {
+      Alert.alert(
+        'Turn on cloud backup?',
+        `Sharing sends this contact to ${org.name} through Pockit's cloud, so cloud backup needs to be on.\n\nContacts you don't share stay private — only you can see them.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Turn on & share',
+            onPress: async () => {
+              await setContactShared(contact.id, true);
+              try {
+                await setBackupEnabled(true); // first sync uploads it
+              } catch (e) {
+                Alert.alert('Backup could not start', e instanceof Error ? e.message : 'Please try again from Settings.');
+              }
+            },
+          },
+        ],
+      );
+      return;
+    }
+    await setContactShared(contact.id, on);
+  };
   const version = useContactsVersion();
   const [contact, setContact] = useState<Contact | null | undefined>(undefined); // undefined = loading
   const [phones, setPhones] = useState<ContactPhone[]>([]);
@@ -323,10 +360,11 @@ You can take a photo and crop it to the card instead.`, [
                 ? 'Your company admins can see this contact. Notes and follow-ups stay private.'
                 : 'Private — only you can see this contact.'}
             </Text>
+            {contact.sharedWithOrg && shareProblem && <Text style={styles.shareWarn}>{shareProblem}</Text>}
           </View>
           <Switch
             value={contact.sharedWithOrg}
-            onValueChange={(v) => setContactShared(contact.id, v)}
+            onValueChange={onToggleShare}
             trackColor={{ true: colors.accent, false: colors.border }}
             thumbColor={colors.surface}
             accessibilityLabel={`Share with ${org.name}`}
@@ -474,6 +512,7 @@ const styles = StyleSheet.create({
   },
   shareTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   shareSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 17 },
+  shareWarn: { fontSize: 12, color: colors.warning, marginTop: 4, lineHeight: 17, fontWeight: '600' },
   eventChip: { backgroundColor: '#FDF2F8', borderWidth: 1, borderColor: '#F9A8D4' },
   catText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   name: { ...typography.title, marginTop: spacing.md, textAlign: 'center' },

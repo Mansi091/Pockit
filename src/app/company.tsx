@@ -111,10 +111,17 @@ export default function CompanyScreen() {
       setCode('');
       setOrgName('');
       await load();
-      Alert.alert(
-        mode === 'join' ? `You joined ${next.name}` : `${next.name} is ready`,
-        'Your contacts are still private. Share the ones you choose from each contact page, or turn on "Share new contacts" below.',
-      );
+      const title = mode === 'join' ? `You joined ${next.name}` : `${next.name} is ready`;
+      const body = 'Your contacts are still private. Share the ones you choose from each contact page, or turn on "Share new contacts" below.';
+      if (await isBackupEnabled()) {
+        Alert.alert(title, body);
+      } else {
+        // Phone app with backup off: shared contacts could never reach the company.
+        Alert.alert(title, `${body}\n\nSharing works through Pockit's cloud, so cloud backup needs to be on. Contacts you don't share stay private — only you can see them.`, [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Turn on backup', onPress: () => setBackupEnabled(true).catch(() => {}) },
+        ]);
+      }
     });
 
   const onInvite = () =>
