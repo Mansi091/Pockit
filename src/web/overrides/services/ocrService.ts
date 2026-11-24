@@ -1,6 +1,7 @@
 import { requireSupabase } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/config/env';
 import type { ExtractedFields, OcrResult } from '@/types/contact';
+import { prepareImage } from '@/web/overrides/services/imageService';
 
 /**
  * Web version of ocrService.ts (same exports).
@@ -33,8 +34,21 @@ const clean = (v: unknown): string | null => {
   return s ? s : null;
 };
 
+/**
+ * Every image is re-drawn as a JPEG of at most 2000 px before it is sent.
+ * iPhones hand the browser 12-megapixel and/or HEIC photos; the server accepts
+ * only JPG/PNG/WebP up to ~4.5 MB, and 2000 px is plenty to read a card.
+ */
+async function asSendableJpeg(imageUri: string): Promise<string> {
+  try {
+    return (await prepareImage(imageUri, { maxDimension: 2000, compress: 0.88 })).uri;
+  } catch {
+    return imageUri; // the browser couldn't decode it; let the checks below explain
+  }
+}
+
 export async function recognizeText(imageUri: string): Promise<OcrResult> {
-  const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(imageUri);
+  const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(await asSendableJpeg(imageUri));
   if (!match) throw new Error('Unsupported image. Please pick a JPG or PNG photo.');
   const [, mimeType, base64] = match;
   if (base64!.length > 6_000_000) throw new Error('This image is too large. Try a smaller photo.');

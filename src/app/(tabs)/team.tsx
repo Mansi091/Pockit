@@ -288,43 +288,74 @@ function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: 
   );
 }
 
+/**
+ * One shared contact, always in the same order:
+ * Name (+ designation) → Company → Contact number → Email → Website → Address.
+ * Every row is shown; "—" marks a detail the card didn't have.
+ */
 function ContactCardView({ c }: { c: SharedContact }) {
-  const role = [c.designation, c.companyName].filter(Boolean).join(' · ');
+  const url = (w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
   return (
     <View style={styles.card}>
       <View style={styles.cardHead}>
         <Avatar name={c.personName} size={42} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.rowTitle} numberOfLines={1}>{c.personName}</Text>
-          {!!role && <Text style={styles.rowSub} numberOfLines={2}>{role}</Text>}
+          <Text style={styles.rowTitle} numberOfLines={1} selectable>{c.personName}</Text>
+          {!!c.designation && <Text style={styles.rowSub} numberOfLines={2}>{c.designation}</Text>}
         </View>
         <Text style={styles.saved}>Saved {day(c.savedAt)}</Text>
       </View>
       <View style={styles.fields}>
-        {c.phones.map((p, i) => (
-          <Field key={`p${i}`} icon="call-outline" label={LABEL_TEXT[p.label] ?? 'Phone'} value={p.number} />
-        ))}
-        {c.emails.map((e) => (
-          <Field key={e} icon="mail-outline" label="Email" value={e} onPress={() => Linking.openURL(`mailto:${e}`)} />
-        ))}
-        {!!c.website && <Field icon="globe-outline" label="Website" value={c.website} />}
-        {c.addresses.map((a, i) => (
-          <Field key={`a${i}`} icon="location-outline" label={ADDRESS_LABEL_TEXT[a.label] ?? 'Address'} value={a.fullAddress} />
-        ))}
-        {c.events.length > 0 && <Field icon="calendar-outline" label="Met at" value={c.events.join(', ')} />}
+        <Field icon="business-outline" label="Company" values={c.companyName ? [{ text: c.companyName }] : []} />
+        <Field
+          icon="call-outline"
+          label="Contact number"
+          values={c.phones.map((p) => ({ text: p.number, tag: LABEL_TEXT[p.label] }))}
+        />
+        <Field
+          icon="mail-outline"
+          label="Email"
+          values={c.emails.map((e) => ({ text: e, onPress: () => Linking.openURL(`mailto:${e}`) }))}
+        />
+        <Field
+          icon="globe-outline"
+          label="Website"
+          values={c.website ? [{ text: c.website, onPress: () => Linking.openURL(url(c.website!)) }] : []}
+        />
+        <Field
+          icon="location-outline"
+          label="Address"
+          values={c.addresses.map((a) => ({ text: a.fullAddress, tag: a.label === 'other' ? undefined : ADDRESS_LABEL_TEXT[a.label] }))}
+        />
+        {c.events.length > 0 && <Field icon="calendar-outline" label="Met at" values={[{ text: c.events.join(', ') }]} />}
       </View>
     </View>
   );
 }
 
-function Field({ icon, label, value, onPress }: { icon: IconName; label: string; value: string; onPress?: () => void }) {
+type FieldValue = { text: string; tag?: string; onPress?: () => void };
+
+function Field({ icon, label, values }: { icon: IconName; label: string; values: FieldValue[] }) {
   return (
     <View style={styles.field}>
-      <Ionicons name={icon} size={15} color={colors.textMuted} style={{ marginTop: 2 }} />
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={[styles.fieldValue, onPress && { color: colors.accent }]} onPress={onPress} selectable>
-        {value}
-      </Text>
+      <View style={styles.fieldHead}>
+        <Ionicons name={icon} size={15} color={colors.textMuted} />
+        <Text style={styles.fieldLabel}>{label}</Text>
+      </View>
+      <View style={styles.fieldValues}>
+        {values.length === 0 ? (
+          <Text style={styles.fieldEmpty}>—</Text>
+        ) : (
+          values.map((v, i) => (
+            <Text key={i} style={styles.fieldValue} selectable>
+              <Text style={v.onPress && { color: colors.accent }} onPress={v.onPress}>
+                {v.text}
+              </Text>
+              {v.tag ? <Text style={styles.fieldTag}>{`  ${v.tag}`}</Text> : null}
+            </Text>
+          ))
+        )}
+      </View>
     </View>
   );
 }
@@ -411,8 +442,12 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, gap: spacing.md },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   saved: { fontSize: 12, color: colors.textSubtle },
-  fields: { gap: 6 },
-  field: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  fieldLabel: { fontSize: 13, color: colors.textMuted, width: 110 },
-  fieldValue: { fontSize: 14, color: colors.text, flex: 1 },
+  fields: { gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.md },
+  field: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: spacing.md, rowGap: 2 },
+  fieldHead: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 150, paddingTop: 1 },
+  fieldLabel: { fontSize: 13, color: colors.textMuted },
+  fieldValues: { flex: 1, minWidth: 200, gap: 2 },
+  fieldValue: { fontSize: 14, color: colors.text, lineHeight: 20 },
+  fieldTag: { fontSize: 12, color: colors.textSubtle },
+  fieldEmpty: { fontSize: 14, color: colors.textSubtle },
 });

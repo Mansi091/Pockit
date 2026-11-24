@@ -176,8 +176,9 @@ function safeCell(value: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
+// Same order as the dashboard card: Name, Company, Contact number, Email, Website, Address.
 export const EXPORT_HEADERS = [
-  'Shared by', 'Name', 'Designation', 'Company', 'Phones', 'Emails', 'Website', 'Addresses', 'Event', 'Saved on',
+  'Name', 'Company', 'Contact number', 'Email', 'Website', 'Address', 'Designation', 'Met at', 'Saved on', 'Shared by',
 ] as const;
 
 /** CSV text with a UTF-8 BOM so Excel shows ₹, é, Hindi names etc. correctly. */
@@ -185,17 +186,17 @@ export function contactsToCsv(contacts: SharedContact[], ownerName: (ownerId: st
   const lines = [EXPORT_HEADERS.join(',')];
   for (const c of contacts) {
     const cells = [
-      ownerName(c.ownerId),
       c.personName,
-      c.designation ?? '',
       c.companyName ?? '',
       // label first, so a number never starts the cell with "+"
       c.phones.map((p) => `${LABEL_TEXT[p.label] ?? 'Phone'}: ${p.number}`).join('; '),
       c.emails.join('; '),
       c.website ?? '',
-      c.addresses.map((a) => `${ADDRESS_LABEL_TEXT[a.label] ?? 'Address'}: ${a.fullAddress}`).join(' | '),
+      c.addresses.map((a) => (a.label === 'other' ? a.fullAddress : `${ADDRESS_LABEL_TEXT[a.label] ?? 'Address'}: ${a.fullAddress}`)).join(' | '),
+      c.designation ?? '',
       c.events.join('; '),
       c.savedAt ? c.savedAt.slice(0, 10) : '',
+      ownerName(c.ownerId),
     ];
     lines.push(cells.map(safeCell).join(','));
   }

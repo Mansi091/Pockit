@@ -32,13 +32,17 @@ describe('team export (CSV for Excel)', () => {
   it('one row per contact with the employee who shared it', () => {
     const [, row] = rows(contactsToCsv([contact()], () => 'Priya Sharma'));
     expect(row).toBe(
-      'Priya Sharma,Hemant Khurana,CEO,Everest Industries,Mobile: +91 98672 99476; Fax: +91 22 4000 9999,hemant@everestind.com,everestind.com,"Registered office: 5 Park Street, Kolkata 700016",Pune Expo 2026,2026-11-24',
+      'Hemant Khurana,Everest Industries,Mobile: +91 98672 99476; Fax: +91 22 4000 9999,hemant@everestind.com,everestind.com,"Registered office: 5 Park Street, Kolkata 700016",CEO,Pune Expo 2026,2026-11-24,Priya Sharma',
     );
+  });
+
+  it('columns follow the dashboard order: name, company, number, email, website, address', () => {
+    expect(EXPORT_HEADERS.slice(0, 6)).toEqual(['Name', 'Company', 'Contact number', 'Email', 'Website', 'Address']);
   });
 
   it('phone cells never start with "+" (Excel would treat them as formulas)', () => {
     const [, row] = rows(contactsToCsv([contact()], () => 'A'));
-    expect(row!.split(',')[4]!.startsWith('Mobile:')).toBe(true);
+    expect(row!.split(',')[2]!.startsWith('Mobile:')).toBe(true);
   });
 
   it('quotes commas, quotes and line breaks', () => {
@@ -48,7 +52,7 @@ describe('team export (CSV for Excel)', () => {
 
   it('neutralises formula injection', () => {
     const [, row] = rows(contactsToCsv([contact({ personName: '=HYPERLINK("http://evil")', phones: [], addresses: [], events: [] })], () => '@me'));
-    expect(row!.startsWith("'@me,")).toBe(true);
+    expect(row!.endsWith(",'@me")).toBe(true);
     expect(row).toContain(`"'=HYPERLINK(""http://evil"")"`);
   });
 
