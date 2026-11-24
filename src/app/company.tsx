@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
@@ -15,6 +15,8 @@ import { fullNameOf } from '@/auth/userName';
 import {
   countSharedContacts,
   createInvite,
+  getActiveInvite,
+  inviteMessage,
   createOrganization,
   getCachedOrganization,
   getMemberStats,
@@ -47,6 +49,8 @@ export default function CompanyScreen() {
   const [team, setTeam] = useState<MemberStats[] | null>(null);
   const [teamError, setTeamError] = useState<string | null>(null);
   const [invite, setInvite] = useState<string | null>(null);
+  const [inviteExpires, setInviteExpires] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [memberMenu, setMemberMenu] = useState<MemberStats | null>(null);
 
@@ -72,6 +76,13 @@ export default function CompanyScreen() {
     }
     setOrg(current);
     if (current?.role === 'admin') {
+      // Show the company's current invite code again (any admin, any device).
+      getActiveInvite(current.id)
+        .then((i) => {
+          setInvite(i?.code ?? null);
+          setInviteExpires(i?.expiresAt ?? null);
+        })
+        .catch(() => {});
       setTeamError(null);
       getMemberStats()
         .then(setTeam)
@@ -128,12 +139,50 @@ export default function CompanyScreen() {
     run('invite', async () => {
       const c = await createInvite('member');
       setInvite(c);
+      setInviteExpires(new Date(Date.now() + 14 * 86_400_000).toISOString());
+      setCopied(false);
     });
 
-  const shareInvite = (c: string) =>
-    Share.share({
-      message: `Join ${org?.name ?? 'our company'} on Pockit: open Pockit → Settings → Company → Join, and enter the code ${c} (valid for 14 days).`,
-    });
+  const siteLink = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : undefined;
+  const message = (c: string) => inviteMessage(org?.name ?? 'our company', c, siteLink);
+
+  // Website: copy straight to the clipboard. Phone: the share sheet (it has "Copy" too).
+  const copyInvite = async (c: string) => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(c);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+        return;
+      } catch {
+        // clipboard blocked: fall through to sharing
+      }
+    }
+    await shareInvite(c);
+  };
+
+  const shareInvite = async (c: string) => {
+    if (Platform.OS === 'web') {
+      const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { share?: (d: { text: string }) => Promise<void> }) : null;
+      if (nav?.share) {
+        await nav.share({ text: message(c) }).catch(() => {});
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(message(c));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      } catch {
+        Alert.alert('Invite code', message(c));
+      }
+      return;
+    }
+    await Share.share({ message: message(c) }).catch(() => {});
+  };
+
+  const validUntil = inviteExpires
+    ? new Date(inviteExpires).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
 
   const onLeave = () =>
     Alert.alert(
@@ -307,12 +356,23 @@ export default function CompanyScreen() {
           <View style={styles.card}>
             {invite ? (
               <>
+                <Text style={styles.inviteLabel}>{org?.name} invite code</Text>
                 <Text style={styles.code} selectable>{invite}</Text>
-                <Text style={styles.note}>Valid for 14 days. Anyone with this code can join as a member.</Text>
+                <Text style={styles.note}>
+                  {validUntil ? `Works until ${validUntil}. ` : ''}Send it to anyone who should join {org?.name}: they open Company → Join with a code.
+                </Text>
                 <View style={sheetStyles.row}>
-                  <CustomButton title="Share code" icon="share-social-outline" onPress={() => shareInvite(invite)} style={{ flex: 1 }} />
-                  <CustomButton title="New code" variant="outline" onPress={onInvite} loading={busy === 'invite'} style={{ flex: 1 }} />
+                  <CustomButton
+                    title={copied ? 'Copied!' : Platform.OS === 'web' ? 'Copy code' : 'Copy / share'}
+                    icon={copied ? 'checkmark' : 'copy-outline'}
+                    onPress={() => copyInvite(invite)}
+                    style={{ flex: 1 }}
+                  />
+                  <CustomButton title="Send invite" icon="share-social-outline" variant="outline" onPress={() => shareInvite(invite)} style={{ flex: 1 }} />
                 </View>
+                <Pressable onPress={onInvite} disabled={busy === 'invite'} style={styles.newCode} accessibilityRole="button">
+                  <Text style={styles.newCodeText}>{busy === 'invite' ? 'Creating…' : 'Make a new code (the old one keeps working until it expires)'}</Text>
+                </Pressable>
               </>
             ) : (
               <CustomButton title="Create an invite code" icon="person-add-outline" onPress={onInvite} loading={busy === 'invite'} />
@@ -400,6 +460,9 @@ const styles = StyleSheet.create({
   warnText: { ...typography.caption, color: colors.warning, lineHeight: 17 },
   privacy: { flexDirection: 'row', gap: 6, marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   privacyText: { ...typography.caption, flex: 1, lineHeight: 17 },
+  inviteLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.6 },
+  newCode: { alignSelf: 'center', paddingVertical: spacing.sm, marginTop: spacing.xs },
+  newCodeText: { fontSize: 13, color: colors.textMuted, textDecorationLine: 'underline' },
   code: { fontSize: 30, fontWeight: '800', letterSpacing: 4, textAlign: 'center', color: colors.text, marginBottom: spacing.xs },
   member: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },

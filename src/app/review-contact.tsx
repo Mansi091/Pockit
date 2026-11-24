@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { getCachedOrganization, getShareNewContacts, refreshMyOrganization, type MyOrganization } from '@/services/orgService';
+import { isBackupEnabled, setBackupEnabled } from '@/services/syncService';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing, typography } from '@/constants/theme';
@@ -214,7 +216,47 @@ export default function ReviewContactScreen() {
     rawOcrText: rawOcr,
     categoryIds,
     isFavourite: favourite,
+    // New contact in a company: the switch below decides (edits keep their sharing).
+    ...(!isEdit && org ? { sharedWithOrg: shareWithOrg } : {}),
   });
+
+  // "Share with <company>" on the save screen (new contacts only).
+  const [org, setOrg] = useState<MyOrganization | null>(null);
+  const [shareWithOrg, setShareWithOrg] = useState(false);
+  useEffect(() => {
+    if (isEdit) return;
+    let live = true;
+    (async () => {
+      const cached = await getCachedOrganization();
+      if (live) setOrg(cached);
+      if (live) setShareWithOrg(await getShareNewContacts()); // the user's default
+      // Joined on another device (e.g. the website)? Ask the cloud.
+      const fresh = await refreshMyOrganization().catch(() => cached);
+      if (live) setOrg(fresh);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [isEdit]);
+
+  const onShareChange = async (on: boolean) => {
+    if (!on || !org) return setShareWithOrg(on);
+    if (await isBackupEnabled()) return setShareWithOrg(true);
+    Alert.alert(
+      'Turn on cloud backup?',
+      `Sharing sends this contact to ${org.name} through Pockit's cloud, so cloud backup needs to be on.\n\nContacts you don't share stay private — only you can see them.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Turn on & share',
+          onPress: () => {
+            setShareWithOrg(true);
+            setBackupEnabled(true).catch((e) => Alert.alert('Backup could not start', e instanceof Error ? e.message : 'Please try again from Settings.'));
+          },
+        },
+      ],
+    );
+  };
 
   const persist = async () => {
     setSaving(true);
@@ -430,6 +472,28 @@ export default function ReviewContactScreen() {
           <InputField label="Designation" value={text.designation} onChangeText={set('designation')} warning={warn('designation')} autoCapitalize="words" />
         </FormSection>
 
+        {!isEdit && org && (
+          <FormSection title={`Share with ${org.name}`} icon="people-outline">
+            <View style={styles.shareRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shareTitle}>{shareWithOrg ? `${org.name} admins will see this contact` : 'Private — only you can see it'}</Text>
+                <Text style={styles.shareSub}>
+                  {shareWithOrg
+                    ? 'Name, company, numbers, emails, website and addresses. Your notes and follow-ups stay private.'
+                    : `Turn on to share it with ${org.name}. You can change this later on the contact's page.`}
+                </Text>
+              </View>
+              <Switch
+                value={shareWithOrg}
+                onValueChange={onShareChange}
+                trackColor={{ true: colors.accent, false: colors.border }}
+                thumbColor={colors.surface}
+                accessibilityLabel={`Share with ${org.name}`}
+              />
+            </View>
+          </FormSection>
+        )}
+
         <FormSection title="Categories & favourites" icon="pricetags-outline">
           <CategoryPicker selected={categoryIds} onChange={setCategoryIds} favourite={favourite} onFavouriteChange={setFavourite} />
         </FormSection>
@@ -509,6 +573,9 @@ export default function ReviewContactScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  shareRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  shareTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  shareSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 17 },
   eventStrip: {
     flexDirection: 'row',
     alignItems: 'center',

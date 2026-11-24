@@ -141,6 +141,41 @@ export async function createInvite(role: OrgRole = 'member'): Promise<string> {
   return data as string;
 }
 
+export interface ActiveInvite {
+  code: string;
+  expiresAt: string;
+}
+
+/**
+ * The newest member invite code of my company that still works (not revoked,
+ * not expired), so admins can copy it again any time. Admins only — the
+ * database (RLS on organization_invites) returns nothing to members.
+ */
+export async function getActiveInvite(orgId: string): Promise<ActiveInvite | null> {
+  const { data, error } = await requireSupabase()
+    .from('organization_invites')
+    .select('code, expires_at')
+    .eq('org_id', orgId)
+    .eq('role', 'member')
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw friendly(error);
+  return data ? { code: data.code as string, expiresAt: data.expires_at as string } : null;
+}
+
+/** Message to send a new employee. */
+export function inviteMessage(orgName: string, code: string, link?: string): string {
+  return (
+    `Join ${orgName} on Pockit.\n\n` +
+    `1. Open Pockit${link ? ` (${link})` : ''} and sign up or sign in.\n` +
+    `2. Go to Company → Join with a code.\n` +
+    `3. Enter the code: ${code}`
+  );
+}
+
 export async function getMemberStats(): Promise<MemberStats[]> {
   const { data, error } = await requireSupabase().rpc('org_member_stats');
   if (error) throw friendly(error);

@@ -9,7 +9,7 @@ import EmptyState from '@/components/EmptyState';
 import Avatar from '@/components/Avatar';
 import OptionSheet from '@/components/OptionSheet';
 import SegmentedTabs from '@/components/SegmentedTabs';
-import { getCachedOrganization, setContactShared, type MyOrganization } from '@/services/orgService';
+import { getCachedOrganization, refreshMyOrganization, setContactShared, type MyOrganization } from '@/services/orgService';
 import ContactNotesTab from '@/components/contact/ContactNotesTab';
 import ContactFollowUpsTab from '@/components/contact/ContactFollowUpsTab';
 import { getEventsForContact, getFollowUps, getNotes, type EventWithCount, type ReminderWithContact } from '@/services/activityService';
@@ -99,6 +99,11 @@ export default function ContactProfileScreen() {
       if (details) {
         const [n, f, e, o] = await Promise.all([getNotes(id), getFollowUps(id), getEventsForContact(id), getCachedOrganization()]);
         setOrg(o);
+        // The company may have been joined on another device (e.g. the website):
+        // ask the cloud, so the "Share with …" switch appears here too.
+        refreshMyOrganization()
+          .then(setOrg)
+          .catch(() => {});
         setNotes(n);
         setFollowUps(f);
         setEvents(e);

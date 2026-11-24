@@ -185,6 +185,8 @@ export interface ContactInput {
   /** P10. Omitted on update = leave unchanged. */
   categoryIds?: string[];
   isFavourite?: boolean;
+  /** New contacts only: share with my company. Omitted = the "share new contacts automatically" setting. */
+  sharedWithOrg?: boolean;
 }
 
 export type ContactField = 'personName' | 'companyName' | 'designation' | 'phone' | 'email' | 'website' | 'address';
