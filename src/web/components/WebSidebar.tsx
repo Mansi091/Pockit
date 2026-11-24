@@ -13,8 +13,9 @@ import { fullNameOf } from '@/auth/userName';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
-const ITEMS: Record<string, { label: string; icon: IconName; active: IconName; superAdminOnly?: boolean }> = {
+const ITEMS: Record<string, { label: string; icon: IconName; active: IconName; superAdminOnly?: boolean; companyAdminOnly?: boolean }> = {
   admin: { label: 'Dashboard', icon: 'shield-checkmark-outline', active: 'shield-checkmark', superAdminOnly: true },
+  team: { label: 'Team', icon: 'briefcase-outline', active: 'briefcase', companyAdminOnly: true },
   index: { label: 'Home', icon: 'home-outline', active: 'home' },
   contacts: { label: 'Contacts', icon: 'people-outline', active: 'people' },
   planner: { label: 'Planner', icon: 'calendar-outline', active: 'calendar' },
@@ -100,6 +101,7 @@ export default function WebSidebar({ state, emitter, navigateToTab }: BottomTabB
           const item = ITEMS[route.name];
           if (!item) return null; // the "new" (scan) placeholder tab
           if (item.superAdminOnly && !superAdmin) return null;
+          if (item.companyAdminOnly && org?.role !== 'admin') return null;
           const focused = state.index === index;
           return (
             <Pressable

@@ -97,7 +97,17 @@ Work top to bottom. Tick each box and write what you saw in **Notes** when somet
 | 5.5 | (Optional) Press-and-hold on C → **Remove from company** | C disappears from the team; on C's Company page (refresh) → join screen again; C's contacts are private again | ☐ | |
 | 5.6 | If you did 5.5, re-invite C (new code) so later tests still work | C back in Test Co | ☐ | |
 
-> The **list of shared contacts with full details + Excel download** for Company Admins is the next feature to build — it is not in this test yet. Section 7 checks the underlying permission directly in the database.
+**5b. Team dashboard (website) — as B**
+
+| # | Step | Expected | ✓ | Notes |
+|---|---|---|---|---|
+| 5b.1 | Sign out and sign in again as B | Lands on **Team** (first item in the sidebar, briefcase icon) | ☐ | |
+| 5b.2 | Team page | Tiles: people in team, contacts shared with you, contacts saved by team; employees ranked by **shared** | ☐ | |
+| 5b.3 | Click C | C's page lists **only** Contact-1 and Contact-3 with phones, emails, addresses, saved date — **not** Contact-2 | ☐ | |
+| 5b.4 | **Download (Excel)** on C's page, then **Download all shared (Excel)** on the Team page | A `.csv` file opens in Excel with one row per shared contact and a "Shared by" column | ☐ | |
+| 5b.5 | As C (member) and D (personal), look at the sidebar / open `/team` | No Team item; `/team` shows "For company admins" | ☐ | |
+
+Section 7 checks the same permission directly in the database.
 
 ---
 

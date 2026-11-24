@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { router, Tabs, usePathname, type Href } from 'expo-router';
 import { isSuperAdmin } from '@/services/superAdminService';
+import { getCachedOrganization, refreshMyOrganization } from '@/services/orgService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '@/constants/theme';
 import { useContactsVersion } from '@/services/dataEvents';
@@ -23,8 +24,10 @@ const icon =
 
 /**
  * Bottom navigation: Home · Contacts · (Scan) · Planner · Categories.
- * Website + Super Admin: a "Dashboard" item sits first in the sidebar and opens
- * right after sign-in. Everyone else never sees it (phones reach it from Settings).
+ * Website: role dashboards sit first in the sidebar and open right after sign-in:
+ *   Pockit owner → "Dashboard" (Super Admin), company admin / CEO → "Team".
+ * Members and personal users never see them (phones reach them from Settings /
+ * the Company page).
  * Settings opens from the gear on Home. Each area has its own screen —
  * Planner splits into Follow-ups / Calendar / Events tabs at the top.
  */
@@ -34,24 +37,40 @@ export default function TabLayout() {
   const { isWide, width, gutter } = useWebLayout();
   const sidePad = gutter(width - SIDEBAR_WIDTH, CONTENT_MAX);
   const pathname = usePathname();
-  const [superAdmin, setSuperAdmin] = useState(false);
+  const [roles, setRoles] = useState<{ superAdmin: boolean; companyAdmin: boolean } | null>(null);
+  const superAdmin = !!roles?.superAdmin;
+  const companyAdmin = !!roles?.companyAdmin;
 
+  // Who is signed in: Pockit owner? company admin (CEO)? Asked from the cloud on
+  // sign-in; the company role is re-read from the local cache when it changes
+  // (creating / joining / leaving a company emits a data change).
   useEffect(() => {
     let live = true;
-    isSuperAdmin().then((ok) => live && setSuperAdmin(ok));
+    Promise.all([
+      isSuperAdmin(),
+      refreshMyOrganization().catch(() => getCachedOrganization()),
+    ]).then(([sa, org]) => live && setRoles({ superAdmin: sa, companyAdmin: org?.role === 'admin' }));
     return () => {
       live = false;
     };
   }, []);
+  useEffect(() => {
+    if (!roles) return;
+    getCachedOrganization().then((org) => setRoles((r) => (r ? { ...r, companyAdmin: org?.role === 'admin' } : r)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
 
-  // Open the dashboard once per sign-in (first landing on Home), not every time
-  // Home is opened afterwards. The tabs remount on each sign-in, resetting this.
+  // Website: open the person's dashboard once per sign-in (first landing on Home),
+  // not every time Home is opened afterwards. Tabs remount on each sign-in.
+  //   Pockit owner → Super Admin dashboard;  company admin (CEO) → Team dashboard.
   const openedDashboard = useRef(false);
   useEffect(() => {
-    if (!superAdmin || !isWide || openedDashboard.current) return;
+    if (!roles || !isWide || openedDashboard.current) return;
     openedDashboard.current = true;
-    if (pathname === '/') router.replace('/admin' as Href);
-  }, [superAdmin, isWide, pathname]);
+    if (pathname !== '/') return;
+    if (roles.superAdmin) router.replace('/admin' as Href);
+    else if (roles.companyAdmin) router.replace('/team' as Href);
+  }, [roles, isWide, pathname]);
 
   // Follow-up notifications: set up once, open the contact when one is tapped…
   useEffect(() => {
@@ -102,6 +121,16 @@ export default function TabLayout() {
           // still checks with the database before showing anything.
           href: superAdmin && isWide ? undefined : null,
           tabBarIcon: icon('shield-checkmark', 'shield-checkmark-outline'),
+        }}
+      />
+      <Tabs.Screen
+        name="team"
+        options={{
+          title: isWide ? 'Team' : 'Team dashboard',
+          headerShown: !isWide, // phone: titled screen opened from the Company page
+          // Company admins (CEO) on the website; the screen re-checks the role itself.
+          href: companyAdmin && isWide ? undefined : null,
+          tabBarIcon: icon('briefcase', 'briefcase-outline'),
         }}
       />
       <Tabs.Screen name="index" options={{ title: 'Home', headerShown: false, tabBarIcon: icon('home', 'home-outline') }} />

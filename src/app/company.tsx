@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import CustomButton from '@/components/CustomButton';
@@ -313,6 +313,12 @@ export default function CompanyScreen() {
           </View>
 
           <Text style={styles.sectionTitle}>Team</Text>
+          <CustomButton
+            title="Open team dashboard"
+            icon="briefcase-outline"
+            onPress={() => router.push('/team' as Href)}
+            style={{ marginBottom: spacing.sm }}
+          />
           <View style={[styles.card, { paddingVertical: 0 }]}>
             {teamError ? (
               <View style={{ paddingVertical: spacing.lg, gap: spacing.sm }}>
@@ -325,9 +331,10 @@ export default function CompanyScreen() {
               team.map((m, i) => (
                 <Pressable
                   key={m.userId}
+                  onPress={() => router.push({ pathname: '/team', params: { member: m.userId } } as unknown as Href)}
                   onLongPress={() => setMemberMenu(m)}
                   style={[styles.member, i < team.length - 1 && styles.divider]}
-                  accessibilityHint="Long-press to change role or remove"
+                  accessibilityHint="Tap to see their shared contacts. Long-press to change role or remove"
                 >
                   <Avatar name={m.displayName} size={38} />
                   <View style={{ flex: 1 }}>
@@ -344,7 +351,7 @@ export default function CompanyScreen() {
             )}
           </View>
           <Text style={styles.tip}>
-            Long-press someone to change their role or remove them. "Saved" counts contacts backed up to the cloud. The full dashboard with contact lists and Excel export is coming on the website.
+            Tap someone to see the contacts they shared; long-press to change their role or remove them. "Saved" counts contacts backed up to the cloud.
           </Text>
         </>
       )}
