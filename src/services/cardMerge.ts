@@ -1,5 +1,17 @@
-import { phoneMatchKey, splitLegacyList, textToPhoneDrafts } from '@/utils/phone';
-import type { ContactField, ContactInput, ExtractedFields } from '@/types/contact';
+import { extractedPhonesToDrafts, phoneMatchKey, splitLegacyList, textToPhoneDrafts } from '@/utils/phone';
+import { summariseAddresses } from '@/services/addressExtraction';
+import type { AddressDraft, ContactField, ContactInput, ExtractedAddress, ExtractedFields } from '@/types/contact';
+
+const toAddressDraft = (a: ExtractedAddress): AddressDraft => ({
+  label: a.label,
+  fullAddress: a.fullAddress,
+  city: a.city ?? '',
+  state: a.state ?? '',
+  country: a.country ?? '',
+  postalCode: a.postalCode ?? '',
+});
+
+const addressKey = (a: { fullAddress: string }) => a.fullAddress.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
  * Two-sided cards (P11). The FRONT is the source of truth: the back only fills
@@ -20,10 +32,17 @@ export function draftFromExtraction(
     personName: fields?.personName ?? '',
     companyName: fields?.companyName ?? null,
     designation: fields?.designation ?? null,
-    phones: textToPhoneDrafts(fields?.phone),
+    // Structured numbers keep the card's own labels (Fax, Direct …) and extensions.
+    phones: fields?.phones ? extractedPhonesToDrafts(fields.phones) : textToPhoneDrafts(fields?.phone),
     emails: splitLegacyList(fields?.email).map((address, i) => ({ label: i === 0 ? 'work' : 'personal', address })),
     website: fields?.website ?? null,
     address: fields?.address ?? null,
+    // Every address block stays separate; older extraction output falls back to the one-line text.
+    addresses: fields?.addresses
+      ? fields.addresses.map(toAddressDraft)
+      : fields?.address
+        ? [toAddressDraft({ label: 'other', fullAddress: fields.address, city: null, state: null, country: null, postalCode: null })]
+        : [],
     cardImagePath,
     rawOcrText: rawOcrText?.trim() ? rawOcrText : null,
   };
@@ -50,8 +69,10 @@ export interface MergeResult {
 export function mergeBackSide(front: ContactInput, back: ContactInput): MergeResult {
   const merged: ContactInput = { ...front, phones: [...front.phones], emails: [...front.emails] };
   const added: ContactField[] = [];
+  const usesList = !!(front.addresses || back.addresses);
 
   for (const k of SCALARS) {
+    if (k === 'address' && usesList) continue; // handled as a list below
     const value = back[k];
     if (blank(front[k]) && !blank(value)) {
       (merged as unknown as Record<string, string | null>)[k] = value ?? null;
@@ -83,6 +104,21 @@ export function mergeBackSide(front: ContactInput, back: ContactInput): MergeRes
   if (newEmails.length) {
     merged.emails = [...merged.emails, ...newEmails];
     added.push('email');
+  }
+
+  if (usesList) {
+    // Addresses: keep every front address, add back-side ones not already there.
+    const frontList = (front.addresses ?? []).filter((a) => a.fullAddress.trim());
+    const keys = new Set(frontList.map(addressKey));
+    const newAddresses = (back.addresses ?? []).filter((a) => {
+      const k = addressKey(a);
+      if (!k || keys.has(k)) return false;
+      keys.add(k);
+      return true;
+    });
+    merged.addresses = [...frontList, ...newAddresses];
+    merged.address = summariseAddresses(merged.addresses);
+    if (newAddresses.length) added.push('address');
   }
 
   merged.rawOcrText = joinOcrText(front.rawOcrText, back.rawOcrText);

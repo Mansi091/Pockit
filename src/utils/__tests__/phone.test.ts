@@ -75,7 +75,7 @@ describe('classifyPhone (v2 migration rule: +91 only when confirmed Indian)', ()
 
   it('labels mobiles and landlines', () => {
     expect(classifyPhone('98765 43210').suggestedLabel).toBe('mobile');
-    expect(classifyPhone('020 2567 8900').suggestedLabel).toBe('work');
+    expect(classifyPhone('020 2567 8900').suggestedLabel).toBe('landline');
   });
 
   it('splits legacy lists and drops entries without digits', () => {

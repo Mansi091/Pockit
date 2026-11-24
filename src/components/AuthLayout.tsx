@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
-import { useWebLayout } from '@/hooks/useWebLayout';
+import { useWebLayout } from '@/web/hooks/useWebLayout';
 
 const FEATURES: { icon: keyof typeof Ionicons.glyphMap; text: string }[] = [
   { icon: 'scan-outline', text: 'Scan a business card and the details fill themselves in' },

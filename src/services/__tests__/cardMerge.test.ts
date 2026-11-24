@@ -119,3 +119,34 @@ describe('describeAdded', () => {
     expect(describeAdded(['phone', 'email', 'address'])).toBe('phone number, email and address');
   });
 });
+
+describe('addresses on two-sided cards', () => {
+  const addr = (label: 'registered' | 'factory' | 'other', fullAddress: string) => ({ label, fullAddress, city: '', state: '', country: '', postalCode: '' });
+
+  it('adds back-side addresses the front does not have, never duplicates', () => {
+    const front = base({ addresses: [addr('registered', '5 Park Street, Kolkata 700016')] });
+    const back = base({ addresses: [addr('registered', '5 Park Street, Kolkata - 700016'), addr('factory', 'Plot 4, Hosur 635109')] });
+    const { merged, added } = mergeBackSide(front, back);
+    expect(merged.addresses!.map((a) => a.label)).toEqual(['registered', 'factory']);
+    expect(merged.address).toBe('5 Park Street, Kolkata 700016 | Plot 4, Hosur 635109');
+    expect(added).toContain('address');
+  });
+
+  it('structured extraction keeps each address and phone type', () => {
+    const d = draftFromExtraction(
+      {
+        personName: 'A', companyName: null, designation: null, phone: null, email: null, website: null, address: null,
+        phones: [{ raw: '+91-44 42235400', label: 'direct', extension: null }, { raw: '+91 22 4000 9999', label: 'fax', extension: null }],
+        addresses: [
+          { label: 'registered', fullAddress: '5 Park Street, Kolkata 700016', city: 'Kolkata', state: null, country: null, postalCode: '700016' },
+          { label: 'factory', fullAddress: 'Plot 4, Hosur 635109', city: 'Hosur', state: null, country: null, postalCode: '635109' },
+        ],
+      },
+      null,
+      null,
+    );
+    expect(d.phones.map((p) => p.label)).toEqual(['direct', 'fax']);
+    expect(d.addresses!.map((a) => a.label)).toEqual(['registered', 'factory']);
+    expect(d.addresses![0]).toMatchObject({ city: 'Kolkata', postalCode: '700016', state: '' });
+  });
+});

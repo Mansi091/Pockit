@@ -10,6 +10,7 @@ describe('P8 phone drafts', () => {
       nationalNumber: '9876543210',
       e164: '+919876543210',
       rawInput: '98765 43210',
+      extension: null,
     });
     expect(draftToRowValues({ countryIso: 'AE', number: '050 123 4567' })).toMatchObject({ callingCode: '971', e164: '+971501234567' });
   });
@@ -37,11 +38,11 @@ describe('P8 phone drafts', () => {
     const drafts = textToPhoneDrafts('+91 98765 43210, 020 2567 8900, (415) 555-0142, +1 415 555 0142, 010-7421-1123, (053) 324-9001');
     expect(drafts).toEqual([
       { label: 'mobile', countryIso: 'IN', number: '9876543210', needsReview: false },
-      { label: 'work', countryIso: 'IN', number: '2025678900', needsReview: false },
+      { label: 'landline', countryIso: 'IN', number: '2025678900', needsReview: false },
       { label: 'other', countryIso: 'US', number: '4155550142', needsReview: false },
       { label: 'other', countryIso: 'US', number: '4155550142', needsReview: false },
       { label: 'mobile', countryIso: 'KR', number: '1074211123', needsReview: false },
-      { label: 'work', countryIso: 'KR', number: '533249001', needsReview: false },
+      { label: 'landline', countryIso: 'KR', number: '533249001', needsReview: false },
     ]);
   });
 
@@ -54,9 +55,9 @@ describe('P8 phone drafts', () => {
   it('round-trips a stored row back into an editable draft', () => {
     const row: ContactPhone = {
       id: 'p1', contactId: 'c1', label: 'personal', countryIso: 'IN', callingCode: '91', nationalNumber: '9876543210',
-      e164: '+919876543210', rawInput: '98765 43210', needsReview: false, position: 0, createdAt: '', updatedAt: '',
+      e164: '+919876543210', rawInput: '98765 43210', needsReview: false, extension: '204', position: 0, createdAt: '', updatedAt: '',
     };
-    expect(phoneToDraft(row)).toEqual({ id: 'p1', label: 'personal', countryIso: 'IN', number: '9876543210', needsReview: false });
+    expect(phoneToDraft(row)).toEqual({ id: 'p1', label: 'personal', countryIso: 'IN', number: '9876543210', extension: '204', needsReview: false });
   });
 });
 

@@ -2,9 +2,9 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing } from '@/constants/theme';
-import { registerWebcamHost, type ScannerRequest, type WebcamShot } from '@/services/webcam';
-import { cropCard, detectCard, loadDetector } from '@/services/cardDetect';
-import { DEFAULT_QUAD, maxCornerShift, type Quad } from '@/utils/perspective';
+import { registerWebcamHost, type ScannerRequest, type WebcamShot } from '@/web/scanner/webcam';
+import { cropCard, detectCard, loadDetector } from '@/web/scanner/cardDetect';
+import { DEFAULT_QUAD, maxCornerShift, type Quad } from '@/web/scanner/perspective';
 
 /**
  * Website card scanner (web only, mounted once in the root layout).
@@ -249,6 +249,20 @@ export default function WebCardScanner() {
     }, 30);
   };
 
+  /** Throw this photo away and go back to the live camera. */
+  const rescan = () => {
+    if (busy) return;
+    setPhoto(null);
+    setQuad(DEFAULT_QUAD);
+    setAutoFound(false);
+    setDetecting(false);
+    setLiveQuad(null);
+    lastQuadRef.current = null;
+    steadyRef.current = 0;
+    setSteady(0);
+    setStage('camera');
+  };
+
   const useWhole = () => {
     const img = imgRef.current;
     if (!img) return;
@@ -428,6 +442,16 @@ export default function WebCardScanner() {
                     : 'Drag the 4 corners onto the card’s edges.'}
               </Text>
               <View style={styles.cropActions}>
+                <Pressable
+                  onPress={rescan}
+                  disabled={busy}
+                  style={[styles.ghostBtn, styles.rescanBtn]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Rescan: take the photo again"
+                >
+                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.ghostText}>Rescan</Text>
+                </Pressable>
                 <Pressable onPress={() => setQuad(DEFAULT_QUAD)} style={styles.ghostBtn} accessibilityRole="button">
                   <Text style={styles.ghostText}>Reset corners</Text>
                 </Pressable>
@@ -473,6 +497,7 @@ const styles = StyleSheet.create({
   cropActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.sm, padding: spacing.lg },
   ghostBtn: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.1)', justifyContent: 'center' },
   ghostText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  rescanBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 'auto' },
   primaryBtn: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.lg, borderRadius: radius.md, backgroundColor: '#FFFFFF' },
   primaryText: { color: colors.primary, fontSize: 15, fontWeight: '700' },
 });

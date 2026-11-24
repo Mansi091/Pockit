@@ -1,10 +1,10 @@
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { openCropper, openWebcam } from '@/services/webcam';
+import { openCropper, openWebcam } from '@/web/scanner/webcam';
 
 /**
  * Web version of cameraService.ts (same exports).
- *  • "camera"  → our live webcam scanner (components/WebCardScanner): finds the
+ *  • "camera"  → our live webcam scanner (web/components/WebCardScanner): finds the
  *                card automatically, then lets the user fine-tune the corners.
  *  • "gallery" → the browser's file picker, then the same corner adjuster
  *                (card auto-detected first).

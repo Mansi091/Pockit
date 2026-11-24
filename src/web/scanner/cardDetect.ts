@@ -1,17 +1,17 @@
-import { outputSize, warpImageData, type Quad } from '@/utils/perspective';
-import { WORKER_SOURCE } from '@/services/cardDetectWorker';
+import { outputSize, warpImageData, type Quad } from '@/web/scanner/perspective';
+import { WORKER_SOURCE } from '@/web/scanner/cardDetectWorker';
 
 /**
  * Website card detection + straightening.
  *
  *  • detectCard(): finds the business card's 4 corners. OpenCV.js runs in a
- *    background Web Worker (services/cardDetectWorker.ts), so loading its
+ *    background Web Worker (web/scanner/cardDetectWorker.ts), so loading its
  *    ~10 MB never freezes the page. If it can't load, detection returns null
  *    and the user drags the corners themselves.
  *  • cropCard(): straightens the chosen corners into a flat card image with
- *    our own perspective maths (utils/perspective.ts).
+ *    our own perspective maths (web/scanner/perspective.ts).
  *
- * Used only by the web scanner (components/WebCardScanner).
+ * Used only by the web scanner (web/components/WebCardScanner).
  */
 const DETECT_MAX = 640; // detection runs on a small copy for speed
 

@@ -1,6 +1,6 @@
 /**
  * Bridge between the capture services (plain functions) and the website card
- * scanner (components/WebCardScanner, mounted once in the root layout, web only).
+ * scanner (web/components/WebCardScanner, mounted once in the root layout, web only).
  *  • openWebcam()      → live camera with card detection → corner adjust → cropped card
  *  • openCropper(uri)  → corner adjust on an uploaded photo (auto-detected first)
  * Both resolve with the straightened card, or null if the user closes it.

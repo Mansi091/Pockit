@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { colors, radius, spacing } from '@/constants/theme';
-import { registerWebDialogHost, type WebDialogRequest } from '@/lib/webAlert';
+import { registerWebDialogHost, type WebDialogRequest } from '@/web/lib/webAlert';
 
 /**
  * Pockit-styled dialog for the website (replaces the browser's grey

@@ -73,7 +73,7 @@ describe('extractContact', () => {
     expect(fields.personName).toBe('Ananya Iyer');
   });
 
-  it('collects multiple phone numbers and emails, puts mobiles first, skips fax', () => {
+  it('collects multiple phone numbers and emails, puts mobiles first, fax last (typed as fax)', () => {
     const { fields } = extractContact(
       plain(
         [
@@ -86,8 +86,9 @@ describe('extractContact', () => {
         ].join('\n'),
       ),
     );
-    expect(fields.phone).toBe('98200 12345, 022 4000 1234, 022 4000 5678');
-    expect(fields.phone).not.toContain('9999');
+    // Fax numbers are kept now (savable, type Fax) — always after the callable numbers.
+    expect(fields.phone).toBe('98200 12345, 022 4000 1234, 022 4000 5678, 022 4000 9999');
+    expect(fields.phones!.map((p) => p.label)).toEqual(['mobile', 'landline', 'landline', 'fax']);
     expect(fields.email).toBe('kiran@raoassociates.in, info@raoassociates.in');
   });
 
@@ -120,6 +121,8 @@ describe('extractContact', () => {
       email: null,
       website: null,
       address: null,
+      phones: [],
+      addresses: [],
     });
   });
 

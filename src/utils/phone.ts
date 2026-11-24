@@ -1,5 +1,5 @@
 import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/max';
-import type { ContactPhone, PhoneDraft, PhoneLabel } from '@/types/contact';
+import type { ContactPhone, ExtractedPhone, PhoneDraft, PhoneLabel } from '@/types/contact';
 
 /**
  * Phone-number classification shared by OCR, drafts and the SQLite migration.
@@ -30,7 +30,8 @@ function fromParsed(rawInput: string, p: ReturnType<typeof parsePhoneNumberFromS
     nationalNumber: p.nationalNumber,
     e164: p.number,
     needsReview,
-    suggestedLabel: type === 'MOBILE' ? 'mobile' : type === 'FIXED_LINE' ? 'work' : 'other',
+    // FIXED_LINE_OR_MOBILE (e.g. US) can't be told apart → "other"; the user can change it.
+    suggestedLabel: type === 'MOBILE' ? 'mobile' : type === 'FIXED_LINE' ? 'landline' : 'other',
   };
 }
 
@@ -117,13 +118,41 @@ export interface PhoneRowValues {
   nationalNumber: string;
   e164: string | null;
   rawInput: string;
+  extension: string | null;
+}
+
+/** Extension as stored: digits only, max 10 — null when empty. */
+export function cleanExtension(ext: string | null | undefined): string | null {
+  const d = digitsOf(ext ?? '');
+  return d ? d.slice(0, 10) : null;
+}
+
+const EXTENSION_RE = /\s*(?:ext(?:ension|n)?\.?|x)\s*[:.#-]?\s*(\d{1,10})\s*$/i;
+
+/** "+91 20 1234 5678 ext. 204" → { number: "+91 20 1234 5678", extension: "204" }. */
+export function splitExtension(raw: string): { number: string; extension: string | null } {
+  const m = EXTENSION_RE.exec(raw);
+  if (!m) return { number: raw.trim(), extension: null };
+  return { number: raw.slice(0, m.index).trim(), extension: m[1]! };
+}
+
+/**
+ * Combines the card's own label ("M:", "Tel:", "Fax:", "(D)") with what the
+ * number itself is. Specific labels (fax, direct, office, WhatsApp…) win; a
+ * mobile/landline label never overrides what the numbering plan proves.
+ */
+export function resolvePhoneLabel(hint: PhoneLabel | null | undefined, fromNumber: PhoneLabel): PhoneLabel {
+  if (!hint) return fromNumber;
+  if (hint === 'mobile') return fromNumber === 'landline' ? 'landline' : 'mobile';
+  if (hint === 'landline') return fromNumber === 'mobile' ? 'mobile' : 'landline';
+  return hint;
 }
 
 /**
  * Converts what the user typed (+ the chosen country) into stored values.
  * A number typed with "+" wins over the dropdown (e.g. "+971 50 123 4567").
  */
-export function draftToRowValues(draft: Pick<PhoneDraft, 'countryIso' | 'number'>): PhoneRowValues {
+export function draftToRowValues(draft: Pick<PhoneDraft, 'countryIso' | 'number' | 'extension'>): PhoneRowValues {
   const raw = draft.number.trim().slice(0, 64);
   const digits = digitsOf(raw);
   const explicitInternational =
@@ -139,6 +168,7 @@ export function draftToRowValues(draft: Pick<PhoneDraft, 'countryIso' | 'number'
     : draft.countryIso
       ? parsePhoneNumberFromString(raw, draft.countryIso as CountryCode)
       : undefined;
+  const extension = cleanExtension(draft.extension);
   if (parsed) {
     return {
       countryIso: parsed.country ?? draft.countryIso,
@@ -146,9 +176,10 @@ export function draftToRowValues(draft: Pick<PhoneDraft, 'countryIso' | 'number'
       nationalNumber: parsed.nationalNumber,
       e164: parsed.number,
       rawInput: raw,
+      extension,
     };
   }
-  return { countryIso: draft.countryIso, callingCode: null, nationalNumber: digitsOf(raw), e164: null, rawInput: raw };
+  return { countryIso: draft.countryIso, callingCode: null, nationalNumber: digitsOf(raw), e164: null, rawInput: raw, extension };
 }
 
 export interface PhoneIssue {
@@ -159,9 +190,13 @@ export interface PhoneIssue {
 }
 
 /** Empty rows are fine (ignored on save). Too short/long is an error; "not valid for <country>" is a warning. */
-export function checkPhoneDraft(draft: Pick<PhoneDraft, 'countryIso' | 'number' | 'needsReview'>, countryName?: string): PhoneIssue {
+export function checkPhoneDraft(
+  draft: Pick<PhoneDraft, 'countryIso' | 'number' | 'needsReview' | 'extension'>,
+  countryName?: string,
+): PhoneIssue {
   const digits = digitsOf(draft.number);
   if (!draft.number.trim()) return { error: null, warning: null };
+  if (draft.extension && !/^\d{1,10}$/.test(draft.extension.trim())) return { error: 'Extension: digits only (up to 10).', warning: null };
   if (/[^\d\s+().\-\/]/.test(draft.number)) return { error: 'Use digits only.', warning: null };
   if (digits.length < 6 || digits.length > 15) return { error: 'Enter a complete number (6–15 digits).', warning: null };
   if (draft.needsReview) return { error: null, warning: 'Imported number — please confirm the country.' };
@@ -173,17 +208,22 @@ export function checkPhoneDraft(draft: Pick<PhoneDraft, 'countryIso' | 'number' 
   return { error: null, warning: null };
 }
 
-/** "+91 98765 43210" for display; falls back to what was typed. */
-export function formatPhone(p: { e164: string | null; rawInput?: string | null; nationalNumber: string }): string {
+/** "+91 44 4223 5400 ext. 204" for display; falls back to what was typed. */
+export function formatPhone(p: { e164: string | null; rawInput?: string | null; nationalNumber: string; extension?: string | null }): string {
+  let base = p.rawInput || p.nationalNumber;
   if (p.e164) {
     const parsed = parsePhoneNumberFromString(p.e164);
-    if (parsed) return parsed.formatInternational();
+    if (parsed) base = parsed.formatInternational();
   }
-  return p.rawInput || p.nationalNumber;
+  return p.extension ? `${base} ext. ${p.extension}` : base;
 }
 
-/** Number to dial / message: E.164 when known, otherwise the digits as typed. */
-export const dialString = (p: { e164: string | null; nationalNumber: string }) => p.e164 ?? p.nationalNumber;
+/**
+ * Number to dial: E.164 when known, otherwise the digits as typed. An extension
+ * is appended after a comma (a dialling pause), which phones then send as tones.
+ */
+export const dialString = (p: { e164: string | null; nationalNumber: string; extension?: string | null }) =>
+  (p.e164 ?? p.nationalNumber) + (p.extension ? `,${p.extension}` : '');
 
 /**
  * OCR often reads the "+" of "+91 98672 99476" as a "4" → "491 9867299476".
@@ -203,12 +243,32 @@ export function fixMisreadPlus(candidate: string): string | null {
 
 /** Converts OCR/legacy text ("98765 43210, +1 415…") into editable drafts. */
 export function textToPhoneDrafts(text: string | null | undefined, defaultCountry: string | null = null): PhoneDraft[] {
-  return splitLegacyPhones(text).map((raw) => {
+  return splitLegacyPhones(text).map((piece) => {
+    const { number: raw, extension } = splitExtension(piece);
     const c = classifyPhone(raw);
     return {
       label: c.suggestedLabel,
       countryIso: c.countryIso ?? defaultCountry,
       number: c.countryIso ? c.nationalNumber : raw,
+      ...(extension ? { extension } : {}),
+      needsReview: c.needsReview && !c.countryIso,
+    };
+  });
+}
+
+/**
+ * Structured OCR phones → editable drafts. The country is only filled in when
+ * the number proves it (explicit code or an unambiguous national format);
+ * otherwise the draft is flagged so the user confirms the country.
+ */
+export function extractedPhonesToDrafts(list: ExtractedPhone[]): PhoneDraft[] {
+  return list.map((p) => {
+    const c = classifyPhone(p.raw);
+    return {
+      label: resolvePhoneLabel(p.label, c.suggestedLabel),
+      countryIso: c.countryIso,
+      number: c.countryIso ? c.nationalNumber : p.raw,
+      ...(p.extension ? { extension: p.extension } : {}),
       needsReview: c.needsReview && !c.countryIso,
     };
   });
@@ -216,6 +276,7 @@ export function textToPhoneDrafts(text: string | null | undefined, defaultCountr
 
 /** Turns a stored phone row back into an editable draft. */
 export const phoneToDraft = (p: ContactPhone): PhoneDraft => ({
+  extension: p.extension,
   id: p.id,
   label: p.label,
   countryIso: p.countryIso,

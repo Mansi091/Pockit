@@ -9,7 +9,7 @@ import {
   quadArea,
   warpImageData,
   type Quad,
-} from '@/utils/perspective';
+} from '@/web/scanner/perspective';
 
 const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-6);
 

@@ -1,4 +1,4 @@
-import '@/lib/webAlert'; // web only: makes Alert.alert confirmations work in the browser
+import '@/web/lib/webAlert'; // web only: makes Alert.alert confirmations work in the browser
 import { ActivityIndicator, StyleSheet, Text, View, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,9 +7,9 @@ import { useFonts, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, M
 import { colors, spacing } from '@/constants/theme';
 import { isSupabaseConfigured } from '@/config/env';
 import { AuthProvider, useAuth } from '@/auth/AuthProvider';
-import { FORM_MAX, useWebLayout } from '@/hooks/useWebLayout';
-import WebCardScanner from '@/components/WebCardScanner';
-import WebDialogHost from '@/components/WebDialogHost';
+import { FORM_MAX, useWebLayout } from '@/web/hooks/useWebLayout';
+import WebCardScanner from '@/web/components/WebCardScanner';
+import WebDialogHost from '@/web/components/WebDialogHost';
 
 /**
  * Root navigator with route protection (Expo Router `Stack.Protected`):
@@ -77,6 +77,7 @@ function RootNavigator() {
           <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           <Stack.Screen name="company" options={{ title: 'Company' }} />
           <Stack.Screen name="admin" options={{ title: 'Super Admin' }} />
+          <Stack.Screen name="batch" options={{ title: 'Batch scan' }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!signedIn}>

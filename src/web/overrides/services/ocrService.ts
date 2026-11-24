@@ -71,6 +71,9 @@ export async function recognizeText(imageUri: string): Promise<OcrResult> {
       email: clean(f.email),
       website: clean(f.website),
       address: clean(f.address),
+      // Newer scan-card versions return structured lists; older ones only the text above.
+      ...(Array.isArray(f.phones) ? { phones: f.phones } : {}),
+      ...(Array.isArray(f.addresses) ? { addresses: f.addresses } : {}),
     },
   };
 }

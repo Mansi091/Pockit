@@ -35,11 +35,8 @@ const toCategory = (r: CategoryRow): Category => ({
 });
 
 /** Formats 32+ hex chars as an RFC-4122-shaped UUID (version 5 / variant bits set). Exported for tests. */
-export function hexToUuid(hex: string): string {
-  const h = hex.toLowerCase().replace(/[^0-9a-f]/g, '').slice(0, 32).padEnd(32, '0');
-  const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
-}
+import { hexToUuid } from '@/utils/ids';
+export { hexToUuid };
 
 export async function linkId(contactId: string, categoryId: string): Promise<string> {
   return hexToUuid(await digestStringAsync(CryptoDigestAlgorithm.SHA256, `contact_category:${contactId}:${categoryId}`));

@@ -1,5 +1,6 @@
-import { fixMisreadPlus } from '@/utils/phone';
-import type { ContactField, ExtractionResult, OcrLine, OcrResult } from '@/types/contact';
+import { extractPhonesFromLine, orderPhones } from '@/services/phoneExtraction';
+import { groupAddresses, readAddressLabel, summariseAddresses } from '@/services/addressExtraction';
+import type { ContactField, ExtractedPhone, ExtractionResult, OcrLine, OcrResult } from '@/types/contact';
 
 /**
  * Rule-based extraction: OCR lines → structured contact fields. Fully offline.
@@ -28,13 +29,8 @@ const URL_RE = new RegExp(
   String.raw`\b(?:https?:\/\/)?(?:www\.)?[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9-]+)*\.(?:${TLDS})(?:\.[a-z]{2})?(?:\/[^\s,]*)?\b`,
   'gi',
 );
-const PHONE_RE = /(?:\+|00)?\(?\d[\d\s\-().\/]{5,}\d/g;
-const DATE_RE = /^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/;
-
 const LABEL_RE =
-  /\b(?:tel|telephone|ph|phone|mob|mobile|cell|m|t|p|o|off|office|res|direct|dir|hp|whatsapp|wa|e|email|e-mail|mail|w|web|website|url|f|fax)\b\.?\s*[:.\-]?/gi;
-const FAX_RE = /\b(?:fax|f)\b\s*[:.\-]/i;
-const MOBILE_LABEL_RE = /\b(?:m|mob|mobile|cell|hp|whatsapp)\b\s*[:.\-]?/i;
+  /\b(?:tel|telephone|ph|phone|mob|mobile|cell|m|t|p|o|d|off|office|res|direct|dir|hp|whatsapp|wa|e|email|e-mail|mail|w|web|website|url|f|fax|telefax|board|landline)\b\.?\s*(?:no\.?)?\s*[:.\-]?/gi;
 
 const GENERIC_EMAIL_DOMAINS = new Set([
   'gmail', 'googlemail', 'yahoo', 'ymail', 'outlook', 'hotmail', 'live', 'msn', 'icloud', 'me', 'aol',
@@ -232,21 +228,6 @@ function domainStem(emailOrUrl: string): string | null {
   return stem.length >= 3 && !GENERIC_EMAIL_DOMAINS.has(stem) ? lettersOnly(stem) : null;
 }
 
-function cleanPhone(s: string): string | null {
-  const trimmed = s.replace(/^[^\d+(]+|[^\d)]+$/g, '').replace(/\s+/g, ' ').trim();
-  const digits = trimmed.replace(/\D/g, '');
-  if (digits.length < 7 || digits.length > 15) return null;
-  if (DATE_RE.test(trimmed)) return null;
-  return trimmed;
-}
-
-/** Splits "020 2567 8900 / 98765 43210" into two numbers when both halves are complete numbers. */
-function splitPhoneMatch(m: string): string[] {
-  const parts = m.split(/\s*[\/,]\s*/);
-  if (parts.length > 1 && parts.every((p) => p.replace(/\D/g, '').length >= 7)) return parts;
-  return [m];
-}
-
 /** Picks the best-scoring candidate; ambiguous if the runner-up is within `margin`. */
 function pickBest<T>(cands: { item: T; score: number }[], threshold: number, margin = 1) {
   const sorted = [...cands].sort((a, b) => b.score - a.score);
@@ -264,8 +245,7 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
 
   const emails: string[] = [];
   const websites: string[] = [];
-  const mobiles: string[] = [];
-  const otherPhones: string[] = [];
+  const foundPhones: ExtractedPhone[] = [];
   const remaining: Line[] = []; // lines left for company/designation/address/name
 
   // 1–2. Contact info
@@ -282,21 +262,10 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
     websites.push(...realUrls.map((u) => u.replace(/[.,;:]+$/, '')));
     for (const u of realUrls) text = text.replace(u, ' ');
 
-    const isFax = FAX_RE.test(text) && !MOBILE_LABEL_RE.test(text);
-    const isMobile = MOBILE_LABEL_RE.test(text);
-    for (const m of text.match(PHONE_RE) ?? []) {
-      for (const part of splitPhoneMatch(m)) {
-        const cleaned = cleanPhone(part);
-        if (!cleaned) continue;
-        text = text.replace(part, ' ');
-        const p = fixMisreadPlus(cleaned) ?? cleaned; // "491 98672 99476" → "+91 98672 99476"
-        if (isFax) continue;
-        const digits = p.replace(/\D/g, '');
-        // Indian mobiles: 10 digits starting 6–9 (optionally after +91 / 0)
-        const looksMobile = /^(?:91|0)?[6-9]\d{9}$/.test(digits);
-        (isMobile || looksMobile ? mobiles : otherPhones).push(p);
-      }
-    }
+    // Every number on the line, with the label printed before it ("M:", "Tel:", "Fax:", "(D)") and any extension.
+    const linePhones = extractPhonesFromLine(text);
+    foundPhones.push(...linePhones.phones);
+    text = linePhones.rest;
 
     const removedSomething = text !== repairContactText(line.text);
     if (!removedSomething) {
@@ -346,6 +315,8 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
 
   const addressLines = parts.filter((l) => {
     if (used.has(l)) return false;
+    // "Regd. Office:", "Factory - Plot 4, MIDC…" — a labelled line always belongs to an address.
+    if (readAddressLabel(l.text)) return true;
     const hits = (l.text.match(ADDRESS_RE) ?? []).length;
     const hasPin = PIN_RE.test(l.text);
     const hasNumbers = /\d/.test(l.text) && /,/.test(l.text);
@@ -404,7 +375,10 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
   const person = pickBest(nameCands, 2);
 
   // Assemble — only what we found; everything else stays null.
-  const phones = unique([...mobiles, ...otherPhones]);
+  const phoneList = orderPhones(foundPhones); // mobiles first, fax last
+  const phones = phoneList.map((p) => (p.extension ? `${p.raw} ext. ${p.extension}` : p.raw));
+  // Each address block separately (Registered office / Factory / Branch …).
+  const addresses = groupAddresses(addressLines.map((l) => ({ idx: l.idx, text: l.text })));
   const fields: ExtractionResult['fields'] = {
     personName: person ? (isAllCaps(person.item.name) ? toTitleCase(person.item.name) : person.item.name) : '',
     companyName: company ? company.item.text.replace(/^[^A-Za-z0-9&]+|[^A-Za-z0-9.)]+$/g, '') : null,
@@ -417,19 +391,16 @@ export function extractContact(ocr: OcrResult): ExtractionResult {
           (a, b) => Number(EXPLICIT_URL_RE.test(b)) - Number(EXPLICIT_URL_RE.test(a)),
         )[0]!
       : null,
-    address: addressLines.length
-      ? addressLines
-          .sort((a, b) => a.idx - b.idx)
-          .map((l) => l.text.replace(/^address\s*[:.\-]?\s*/i, ''))
-          .join(', ')
-          .replace(/\s*,\s*,+/g, ',')
-      : null,
+    address: summariseAddresses(addresses),
+    phones: phoneList,
+    addresses,
   };
 
   if (person && (person.ambiguous || person.score < 4)) lowConfidence.push('personName');
   if (company && company.ambiguous) lowConfidence.push('companyName');
   if (designation && designation.ambiguous) lowConfidence.push('designation');
-  if (addressLines.length === 1 && !PIN_RE.test(addressLines[0]!.text)) lowConfidence.push('address');
+  // An address without a PIN/ZIP may be incomplete or mis-split — ask the user to check.
+  if (addresses.some((a) => !a.postalCode)) lowConfidence.push('address');
   if (emailRepaired && emails.length) lowConfidence.push('email'); // rebuilt from a misread "@" — ask the user to check
 
   return { fields, lowConfidence };

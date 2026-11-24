@@ -28,7 +28,7 @@ export const SYNC_TABLES: readonly TableSpec[] = [
   {
     name: 'contact_phones',
     parent: 'contacts',
-    columns: ['contact_id', 'label', 'country_iso', 'calling_code', 'national_number', 'e164', 'raw_input', 'needs_review', 'position', ...TIMESTAMPS],
+    columns: ['contact_id', 'label', 'country_iso', 'calling_code', 'national_number', 'e164', 'raw_input', 'needs_review', 'extension', 'position', ...TIMESTAMPS],
     booleans: ['needs_review'],
     timestamps: TIMESTAMPS,
   },
@@ -36,6 +36,12 @@ export const SYNC_TABLES: readonly TableSpec[] = [
     name: 'contact_emails',
     parent: 'contacts',
     columns: ['contact_id', 'label', 'address', 'position', ...TIMESTAMPS],
+    timestamps: TIMESTAMPS,
+  },
+  {
+    name: 'contact_addresses',
+    parent: 'contacts',
+    columns: ['contact_id', 'label', 'full_address', 'city', 'state', 'country', 'postal_code', 'position', ...TIMESTAMPS],
     timestamps: TIMESTAMPS,
   },
   { name: 'contact_categories', parent: 'contacts', columns: ['contact_id', 'category_id', ...TIMESTAMPS], timestamps: TIMESTAMPS },

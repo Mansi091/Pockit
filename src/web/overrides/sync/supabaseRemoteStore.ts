@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { blobToDataUrl } from '@/services/imageService.web';
+import { blobToDataUrl } from '@/web/overrides/services/imageService';
 import { CloudSchemaOutdatedError, type RemoteStore, type Row } from '@/sync/types';
 
 /**

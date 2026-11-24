@@ -138,17 +138,17 @@ Contacts search matches name, company, designation, website, address, every emai
 
 ## Web app (same codebase)
 
-The website is the SAME Expo Router app built for the browser (`npx expo start --web`, `npx expo export --platform web` → `dist/`). Same screens, same login, same data. Phone-only pieces have `*.web.ts(x)` versions that Metro picks automatically in the browser:
+The website is the SAME Expo Router app built for the browser (`npx expo start --web`, `npx expo export --platform web` → `dist/`). Same screens, same login, same data. All website-only code lives in `src/web/` (see `src/web/README.md`). Phone-only pieces have web versions in `src/web/overrides/` (same path as in `src/`); `metro.config.js` swaps them in for the web build only:
 
 | Area | Phone | Web (`*.web.*` file) |
 |---|---|---|
-| Session storage | SecureStore (chunked) | `lib/secureStorage.web.ts` → localStorage |
+| Session storage | SecureStore (chunked) | `web/overrides/lib/secureStorage.ts` → localStorage |
 | Database | expo-sqlite (file) | expo-sqlite web (wa-sqlite in a worker, OPFS). Needs `.wasm` in `metro.config.js` and cross-origin-isolation headers (dev: `metro.config.js`; hosting: `vercel.json`) |
-| Card images | files in app storage | `services/imageService.web.ts` → JPEG data URLs in the row; canvas resize/rotate |
-| Image sync | expo-file-system | `sync/supabaseRemoteStore.web.ts` (Blob upload, data-URL download) |
-| OCR | ML Kit on-device | `services/ocrService.web.ts` → Edge Function `scan-card` → Google Gemini (key only in Supabase secrets); returns lines + fields, so the rule-based extractor is skipped |
-| Dates | Android dialogs | `components/DateTimeField.web.tsx` → `<input type="date|time">` |
-| Confirmations | Alert | `lib/webAlert.ts` maps Alert.alert to confirm/alert |
+| Card images | files in app storage | `web/overrides/services/imageService.ts` → JPEG data URLs in the row; canvas resize/rotate |
+| Image sync | expo-file-system | `web/overrides/sync/supabaseRemoteStore.ts` (Blob upload, data-URL download) |
+| OCR | ML Kit on-device | `web/overrides/services/ocrService.ts` → Edge Function `scan-card` → Google Gemini (key only in Supabase secrets); returns lines + fields, so the rule-based extractor is skipped |
+| Dates | Android dialogs | `web/overrides/components/DateTimeField.tsx` → `<input type="date|time">` |
+| Confirmations | Alert | `web/lib/webAlert.ts` maps Alert.alert to confirm/alert |
 | Cloud backup | opt-in | always on (`isBackupEnabled()` returns true): the web sees phone data only through the cloud |
 | Save to phone contacts | yes | hidden |
 
@@ -156,9 +156,9 @@ Edge Function `supabase/functions/scan-card` (Deno): checks the caller is a sign
 
 ## Web card scanner
 
-`components/WebCardScanner.tsx` (mounted once in the root layout, web only; opened through `services/webcam.ts`):
-- **Camera stage:** `getUserMedia` webcam → every 250 ms a 640-px frame goes to a **Web Worker** running **OpenCV.js 4.10** (`services/cardDetectWorker.ts`, loaded from docs.opencv.org, ~10 MB, cached). Detection = grayscale → blur → Canny edges + Otsu brightness → contours → convex 4-corner shape, preferring card proportions (1.25–2.3). Green outline on the video; steady for ~1 s → auto-capture (toggle).
-- **Crop stage:** full-resolution frame (or an uploaded photo, auto-detected first) with 4 draggable corners → `cropCard()` straightens it with our own homography + bilinear warp (`utils/perspective.ts`, unit tested). Works without OpenCV (manual corners).
+`web/components/WebCardScanner.tsx` (mounted once in the root layout, web only; opened through `web/scanner/webcam.ts`):
+- **Camera stage:** `getUserMedia` webcam → every 250 ms a 640-px frame goes to a **Web Worker** running **OpenCV.js 4.10** (`web/scanner/cardDetectWorker.ts`, loaded from docs.opencv.org, ~10 MB, cached). Detection = grayscale → blur → Canny edges + Otsu brightness → contours → convex 4-corner shape, preferring card proportions (1.25–2.3). Green outline on the video; steady for ~1 s → auto-capture (toggle).
+- **Crop stage:** full-resolution frame (or an uploaded photo, auto-detected first) with 4 draggable corners → `cropCard()` straightens it with our own homography + bilinear warp (`web/scanner/perspective.ts`, unit tested). Works without OpenCV (manual corners).
 - Running OpenCV in a worker is required: loading it on the main thread froze the tab.
 
 ## Platform super admin (0006)

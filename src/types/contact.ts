@@ -24,13 +24,17 @@ export interface Contact {
 
 // ── Structured / related records (schema v2) ──────────────────────────
 
-export type PhoneLabel = 'mobile' | 'personal' | 'work' | 'office' | 'whatsapp' | 'other';
+/** Phone types. landline / direct / fax added in schema v4 (cloud 0007). */
+export type PhoneLabel = 'mobile' | 'landline' | 'office' | 'direct' | 'fax' | 'whatsapp' | 'personal' | 'work' | 'other';
 export type EmailLabel = 'work' | 'personal' | 'other';
 
-export const PHONE_LABELS: readonly PhoneLabel[] = ['mobile', 'personal', 'work', 'office', 'whatsapp', 'other'];
+export const PHONE_LABELS: readonly PhoneLabel[] = ['mobile', 'landline', 'office', 'direct', 'fax', 'whatsapp', 'personal', 'work', 'other'];
 export const EMAIL_LABELS: readonly EmailLabel[] = ['work', 'personal', 'other'];
 export const LABEL_TEXT: Record<PhoneLabel | EmailLabel, string> = {
   mobile: 'Mobile',
+  landline: 'Landline',
+  direct: 'Direct',
+  fax: 'Fax',
   personal: 'Personal',
   work: 'Work',
   office: 'Office',
@@ -44,7 +48,51 @@ export interface PhoneDraft {
   label: PhoneLabel;
   countryIso: string | null; // chosen country; null only for unconfirmed migrated numbers
   number: string; // national number as typed (any formatting)
+  /** Digits only, e.g. "204" for "ext. 204". Kept separate from the number. */
+  extension?: string | null;
   needsReview?: boolean;
+}
+
+// ── Addresses (schema v4 / cloud 0007) ────────────────────────────────
+
+export type AddressLabel =
+  | 'registered'
+  | 'corporate'
+  | 'head'
+  | 'branch'
+  | 'regional'
+  | 'factory'
+  | 'warehouse'
+  | 'office'
+  | 'home'
+  | 'other';
+
+export const ADDRESS_LABELS: readonly AddressLabel[] = [
+  'registered', 'corporate', 'head', 'branch', 'regional', 'factory', 'warehouse', 'office', 'home', 'other',
+];
+
+export const ADDRESS_LABEL_TEXT: Record<AddressLabel, string> = {
+  registered: 'Registered office',
+  corporate: 'Corporate office',
+  head: 'Head office',
+  branch: 'Branch office',
+  regional: 'Regional office',
+  factory: 'Factory / Plant',
+  warehouse: 'Warehouse',
+  office: 'Office',
+  home: 'Home',
+  other: 'Other',
+};
+
+/** One address as edited in the form. Empty strings = not given. */
+export interface AddressDraft {
+  id?: string;
+  label: AddressLabel;
+  fullAddress: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode: string;
 }
 
 export interface EmailDraft {
@@ -68,6 +116,18 @@ export interface ContactPhone extends SyncedRecord {
   e164: string | null;
   rawInput: string | null;
   needsReview: boolean; // set by the v2 migration when the country couldn't be confirmed
+  extension: string | null;
+  position: number;
+}
+
+export interface ContactAddress extends SyncedRecord {
+  contactId: string;
+  label: AddressLabel;
+  fullAddress: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postalCode: string | null;
   position: number;
 }
 
@@ -114,7 +174,10 @@ export interface ContactInput {
   phones: PhoneDraft[];
   emails: EmailDraft[];
   website: string | null;
+  /** Legacy single-address text. Used only when `addresses` is not given. */
   address: string | null;
+  /** All addresses (v4). When omitted, `address` (if any) becomes one "Other" address. */
+  addresses?: AddressDraft[];
   cardImagePath: string | null;
   /** P11 reverse side. Omitted on update = leave unchanged; null = remove. */
   cardBackImagePath?: string | null;
@@ -131,10 +194,31 @@ export interface ExtractedFields {
   personName: string;
   companyName: string | null;
   designation: string | null;
-  phone: string | null;
+  phone: string | null; // all numbers, comma-separated (summary / older code)
   email: string | null;
   website: string | null;
-  address: string | null;
+  address: string | null; // all addresses joined with " | " (summary / older code)
+  /** Every number with the type the card gave it (when known) and its extension. */
+  phones?: ExtractedPhone[];
+  /** Every address block on the card, kept separate. */
+  addresses?: ExtractedAddress[];
+}
+
+export interface ExtractedPhone {
+  /** The number as printed, minus labels like "(D)" and the extension. */
+  raw: string;
+  /** Type from the card's own label (M:, Tel:, Fax:, D:) — null when the card didn't say. */
+  label: PhoneLabel | null;
+  extension: string | null;
+}
+
+export interface ExtractedAddress {
+  label: AddressLabel;
+  fullAddress: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postalCode: string | null;
 }
 
 export interface DashboardStats {

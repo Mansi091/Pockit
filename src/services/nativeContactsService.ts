@@ -1,9 +1,9 @@
 import { Contact as PhoneContact, requestPermissionsAsync, type CreateContactRecord } from 'expo-contacts';
 import { showPermissionSettingsAlert } from '@/services/cameraService';
 import { imageExists, prepareContactPhoto } from '@/services/imageService';
-import { findEmails, findPhones } from '@/database/structuredRepository';
+import { findAddresses, findEmails, findPhones } from '@/database/structuredRepository';
 import { dialString } from '@/utils/phone';
-import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone, type EmailLabel, type PhoneLabel } from '@/types/contact';
+import { ADDRESS_LABEL_TEXT, LABEL_TEXT, type Contact, type ContactAddress, type ContactEmail, type ContactPhone, type EmailLabel, type PhoneLabel } from '@/types/contact';
 
 /**
  * Saves a Pockit contact into the phone's own Contacts app (expo-contacts).
@@ -35,7 +35,12 @@ function splitName(full: string): { givenName: string; familyName?: string } {
 const androidLabel = (l: PhoneLabel | EmailLabel): string =>
   l === 'mobile' || l === 'work' || l === 'other' ? l : LABEL_TEXT[l];
 
-export function toPhoneRecord(c: Contact, phones: ContactPhone[], emails: ContactEmail[]): CreateContactRecord {
+export function toPhoneRecord(
+  c: Contact,
+  phones: ContactPhone[],
+  emails: ContactEmail[],
+  addresses: ContactAddress[] = [],
+): CreateContactRecord {
   return {
     ...splitName(c.personName),
     company: c.companyName ?? undefined,
@@ -43,7 +48,13 @@ export function toPhoneRecord(c: Contact, phones: ContactPhone[], emails: Contac
     phones: phones.map((p) => ({ label: androidLabel(p.label), number: dialString(p) })),
     emails: emails.map((e) => ({ label: androidLabel(e.label), address: e.address })),
     urlAddresses: c.website ? [{ label: 'work', url: c.website }] : undefined,
-    addresses: c.address ? [{ label: 'work', street: c.address }] : undefined,
+    // Each address with its own label ("Registered office", "Factory / Plant"); the full text goes in
+    // street so Android doesn't print city/PIN twice.
+    addresses: addresses.length
+      ? addresses.map((a) => ({ label: a.label === 'home' ? 'home' : ADDRESS_LABEL_TEXT[a.label], street: a.fullAddress }))
+      : c.address
+        ? [{ label: 'work', street: c.address }]
+        : undefined,
     note: 'Added from Pockit',
   };
 }
@@ -88,8 +99,8 @@ async function cardPhotoFor(c: Contact, compose?: ComposePhoto): Promise<string 
 }
 
 async function buildRecord(c: Contact, compose?: ComposePhoto): Promise<CreateContactRecord> {
-  const [phones, emails] = await Promise.all([findPhones(c.id), findEmails(c.id)]);
-  return { ...toPhoneRecord(c, phones, emails), image: await cardPhotoFor(c, compose) };
+  const [phones, emails, addresses] = await Promise.all([findPhones(c.id), findEmails(c.id), findAddresses(c.id)]);
+  return { ...toPhoneRecord(c, phones, emails, addresses), image: await cardPhotoFor(c, compose) };
 }
 
 /**

@@ -23,7 +23,7 @@ import { ScannerUnavailableError } from '@/services/documentScannerService';
 import { scanSession } from '@/services/scanSession';
 import { dialString, formatPhone } from '@/utils/phone';
 import { flagOf } from '@/data/countries';
-import { LABEL_TEXT, type Contact, type ContactEmail, type ContactPhone, type Interaction } from '@/types/contact';
+import { ADDRESS_LABEL_TEXT, LABEL_TEXT, type AddressDraft, type Contact, type ContactEmail, type ContactPhone, type Interaction } from '@/types/contact';
 
 type ProfileTab = 'details' | 'notes' | 'followups';
 const isProfileTab = (t: unknown): t is ProfileTab => t === 'details' || t === 'notes' || t === 'followups';
@@ -41,6 +41,7 @@ export default function ContactProfileScreen() {
   const [contact, setContact] = useState<Contact | null | undefined>(undefined); // undefined = loading
   const [phones, setPhones] = useState<ContactPhone[]>([]);
   const [emails, setEmails] = useState<ContactEmail[]>([]);
+  const [addresses, setAddresses] = useState<AddressDraft[]>([]);
   const [contactCategories, setContactCategories] = useState<CategoryWithCount[]>([]);
   const [savingToPhone, setSavingToPhone] = useState(false);
   const [backSheet, setBackSheet] = useState(false);
@@ -55,6 +56,7 @@ export default function ContactProfileScreen() {
       setContact(details?.contact ?? null);
       setPhones(details?.phones ?? []);
       setEmails(details?.emails ?? []);
+      setAddresses(details?.addresses ?? []);
       const all = details?.categoryIds.length ? await getCategories() : [];
       setContactCategories(all.filter((c) => details!.categoryIds.includes(c.id)));
       if (details) {
@@ -293,7 +295,16 @@ You can take a photo and crop it to the card instead.`, [
           <ListRow key={e.id} icon="mail-outline" label={LABEL_TEXT[e.label]} value={e.address} onPress={() => open(`mailto:${e.address}`)} />
         ))}
         <Detail icon="globe-outline" label="Website" value={contact.website} />
-        <Detail icon="location-outline" label="Address" value={contact.address} />
+        {addresses.length === 0 && <Detail icon="location-outline" label="Address" value={null} />}
+        {addresses.map((a, i) => (
+          <ListRow
+            key={a.id ?? 'addr-' + i}
+            icon="location-outline"
+            label={ADDRESS_LABEL_TEXT[a.label]}
+            value={a.fullAddress}
+            onPress={() => open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(a.fullAddress))}
+          />
+        ))}
         <Detail icon="business-outline" label="Company" value={contact.companyName} />
         <Detail icon="briefcase-outline" label="Designation" value={contact.designation} last />
       </View>

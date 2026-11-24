@@ -2,7 +2,16 @@ import { randomUUID } from 'expo-crypto';
 import { getDb } from '@/database/db';
 import { CONTACT_CHILD_TABLES } from '@/sync/tables';
 import { draftToRowValues } from '@/utils/phone';
-import type { ContactEmail, ContactPhone, EmailDraft, PhoneDraft, PhoneLabel } from '@/types/contact';
+import type {
+  AddressDraft,
+  AddressLabel,
+  ContactAddress,
+  ContactEmail,
+  ContactPhone,
+  EmailDraft,
+  PhoneDraft,
+  PhoneLabel,
+} from '@/types/contact';
 
 /**
  * Structured phones/emails (schema v2, edited by the P8 form) + contact-child housekeeping.
@@ -20,6 +29,21 @@ interface PhoneRow {
   e164: string | null;
   raw_input: string | null;
   needs_review: number;
+  extension: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AddressRow {
+  id: string;
+  contact_id: string;
+  label: string;
+  full_address: string;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
   position: number;
   created_at: string;
   updated_at: string;
@@ -45,6 +69,21 @@ const toPhone = (r: PhoneRow): ContactPhone => ({
   e164: r.e164,
   rawInput: r.raw_input,
   needsReview: r.needs_review === 1,
+  extension: r.extension ?? null,
+  position: r.position,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const toAddress = (r: AddressRow): ContactAddress => ({
+  id: r.id,
+  contactId: r.contact_id,
+  label: r.label as AddressLabel,
+  fullAddress: r.full_address,
+  city: r.city,
+  state: r.state,
+  country: r.country,
+  postalCode: r.postal_code,
   position: r.position,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -116,6 +155,7 @@ export async function replacePhones(contactId: string, drafts: PhoneDraft[], now
       r.national_number === v.nationalNumber &&
       r.e164 === v.e164 &&
       r.position === position &&
+      (r.extension ?? null) === v.extension &&
       r.needs_review === (d.needsReview ? 1 : 0)
     );
   });
@@ -124,19 +164,19 @@ export async function replacePhones(contactId: string, drafts: PhoneDraft[], now
     const v = draftToRowValues(draft);
     await db.runAsync(
       `INSERT INTO contact_phones (id, contact_id, label, country_iso, calling_code, national_number, e164,
-         raw_input, needs_review, position, created_at, updated_at, needs_push)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+         raw_input, needs_review, extension, position, created_at, updated_at, needs_push)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       randomUUID(), contactId, draft.label, v.countryIso, v.callingCode, v.nationalNumber, v.e164,
-      v.rawInput, draft.needsReview ? 1 : 0, position, now, now,
+      v.rawInput, draft.needsReview ? 1 : 0, v.extension, position, now, now,
     );
   }
   for (const { id, draft, position } of plan.update) {
     const v = draftToRowValues(draft);
     await db.runAsync(
       `UPDATE contact_phones SET label = ?, country_iso = ?, calling_code = ?, national_number = ?, e164 = ?,
-         raw_input = ?, needs_review = ?, position = ?, updated_at = ?, needs_push = 1 WHERE id = ?`,
+         raw_input = ?, needs_review = ?, extension = ?, position = ?, updated_at = ?, needs_push = 1 WHERE id = ?`,
       draft.label, v.countryIso, v.callingCode, v.nationalNumber, v.e164, v.rawInput,
-      draft.needsReview ? 1 : 0, position, now, id,
+      draft.needsReview ? 1 : 0, v.extension, position, now, id,
     );
   }
   for (const id of plan.remove) {
@@ -168,6 +208,70 @@ export async function replaceEmails(contactId: string, drafts: EmailDraft[], now
   }
   for (const id of plan.remove) {
     await db.runAsync('UPDATE contact_emails SET deleted_at = ?, updated_at = ?, needs_push = 1 WHERE id = ?', now, now, id);
+  }
+}
+
+export async function findAddresses(contactId: string): Promise<ContactAddress[]> {
+  const rows = await getDb().getAllAsync<AddressRow>(
+    'SELECT * FROM contact_addresses WHERE contact_id = ? AND deleted_at IS NULL ORDER BY position',
+    contactId,
+  );
+  return rows.map(toAddress);
+}
+
+/** Stored values for one address draft: trimmed, empty parts → null, sensible length caps (match 0007 CHECKs). */
+export function addressRowValues(d: AddressDraft) {
+  const t = (v: string, max: number) => {
+    const s = v.trim().replace(/\s+/g, ' ');
+    return s ? s.slice(0, max) : null;
+  };
+  return {
+    label: d.label,
+    fullAddress: d.fullAddress.trim().replace(/[ \t]+/g, ' ').slice(0, 1000),
+    city: t(d.city, 120),
+    state: t(d.state, 120),
+    country: t(d.country, 120),
+    postalCode: t(d.postalCode, 20),
+  };
+}
+
+export async function replaceAddresses(contactId: string, drafts: AddressDraft[], now: string): Promise<void> {
+  const db = getDb();
+  const existing = await db.getAllAsync<AddressRow>(
+    'SELECT * FROM contact_addresses WHERE contact_id = ? AND deleted_at IS NULL',
+    contactId,
+  );
+  const plan = planById(existing, drafts, (r, d, position) => {
+    const v = addressRowValues(d);
+    return (
+      r.label === v.label &&
+      r.full_address === v.fullAddress &&
+      r.city === v.city &&
+      r.state === v.state &&
+      r.country === v.country &&
+      r.postal_code === v.postalCode &&
+      r.position === position
+    );
+  });
+  for (const { draft, position } of plan.insert) {
+    const v = addressRowValues(draft);
+    await db.runAsync(
+      `INSERT INTO contact_addresses (id, contact_id, label, full_address, city, state, country, postal_code,
+         position, created_at, updated_at, needs_push)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      randomUUID(), contactId, v.label, v.fullAddress, v.city, v.state, v.country, v.postalCode, position, now, now,
+    );
+  }
+  for (const { id, draft, position } of plan.update) {
+    const v = addressRowValues(draft);
+    await db.runAsync(
+      `UPDATE contact_addresses SET label = ?, full_address = ?, city = ?, state = ?, country = ?, postal_code = ?,
+         position = ?, updated_at = ?, needs_push = 1 WHERE id = ?`,
+      v.label, v.fullAddress, v.city, v.state, v.country, v.postalCode, position, now, id,
+    );
+  }
+  for (const id of plan.remove) {
+    await db.runAsync('UPDATE contact_addresses SET deleted_at = ?, updated_at = ?, needs_push = 1 WHERE id = ?', now, now, id);
   }
 }
 

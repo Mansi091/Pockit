@@ -59,3 +59,11 @@ Rules are exactly P6's: last-write-wins on `updated_at` (compared as instants), 
 win ties, images upload before rows, deletions travel as tombstones. The contacts pull cursor reuses
 the P6 key, so upgrading does not re-download everything. If the cloud is missing a v2 table/column,
 sync stops with "run 0002" instead of failing silently.
+
+## v4 / cloud 0007 — multiple addresses, phone types & extensions
+
+- **`contact_addresses`** (new, child of `contacts`): `label` (registered · corporate · head · branch · regional · factory · warehouse · office · home · other), `full_address`, `city`, `state`, `country`, `postal_code`, `position`, timestamps. Same ownership/RLS as phones; company admins can read it for shared contacts. Synced like the other child tables and soft-deleted with its contact.
+- **`contact_phones.extension`** (digits only, ≤10) and new labels **landline · direct · fax** (existing labels unchanged). FIXED_LINE numbers are now typed `landline` (previously `work`).
+- **Migration (device, schema v4, backed up first):** every existing `contacts.address` is copied into `contact_addresses` (label "other", PIN/city/state/country parsed only when present) with a **deterministic id** (`legacy_address:<contactId>:<n>`), so several devices converge on one row; the count is verified or the step rolls back. `contacts.address` is kept as a summary (`"A | B"`) — expand → validate → contract.
+- If a contact has no address rows but has summary text (e.g. it arrived from the cloud after this device upgraded), the app shows the text as one address so nothing is lost on the next save.
+- Extraction: `services/phoneExtraction.ts` (per-number labels, `(D)` notes, extensions, shared-prefix continuations, fax kept) and `services/addressExtraction.ts` (blocks split by label / gap / second PIN; parts parsed only when printed). Web OCR (Gemini) returns the same structured lists.

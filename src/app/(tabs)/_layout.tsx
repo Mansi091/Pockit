@@ -6,8 +6,8 @@ import { colors } from '@/constants/theme';
 import { useContactsVersion } from '@/services/dataEvents';
 import { refreshNotifications } from '@/services/activityService';
 import { initNotifications, onNotificationTap } from '@/services/notificationService';
-import WebSidebar from '@/components/WebSidebar';
-import { CONTENT_MAX, SIDEBAR_WIDTH, useWebLayout } from '@/hooks/useWebLayout';
+import WebSidebar from '@/web/components/WebSidebar';
+import { CONTENT_MAX, SIDEBAR_WIDTH, useWebLayout } from '@/web/hooks/useWebLayout';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const icon =

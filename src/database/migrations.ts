@@ -2,6 +2,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { classifyPhone, splitLegacyList, splitLegacyPhones } from '@/utils/phone';
+import { deterministicId } from '@/utils/ids';
+import { parseAddressParts } from '@/services/addressExtraction';
 
 /**
  * Schema migrations, tracked with SQLite's `PRAGMA user_version`.
@@ -67,7 +69,81 @@ const migrations: Migration[] = [
       await db.execAsync('ALTER TABLE contacts ADD COLUMN shared_with_org INTEGER NOT NULL DEFAULT 0;');
     },
   },
+  {
+    version: 4,
+    description: 'multiple addresses per contact (contact_addresses) + phone extensions',
+    backup: true,
+    up: async (db) => {
+      await db.execAsync(SCHEMA_V4);
+      await migrateLegacyAddresses(db);
+    },
+  },
 ];
+
+/**
+ * v4 DDL. contact_addresses mirrors the cloud table from supabase/migrations/0007.
+ * contacts.address is kept (expand → validate → contract) as a one-line summary
+ * of all addresses, so search and older app versions keep working.
+ */
+export const SCHEMA_V4 = `
+  ALTER TABLE contact_phones ADD COLUMN extension TEXT;
+
+  CREATE TABLE IF NOT EXISTS contact_addresses (
+    id           TEXT PRIMARY KEY NOT NULL,
+    contact_id   TEXT NOT NULL,
+    label        TEXT NOT NULL DEFAULT 'other',
+    full_address TEXT NOT NULL,
+    city         TEXT,
+    state        TEXT,
+    country      TEXT,
+    postal_code  TEXT,
+    position     INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
+    needs_push   INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_addresses_contact ON contact_addresses (contact_id);
+  CREATE INDEX IF NOT EXISTS idx_addresses_push ON contact_addresses (needs_push);
+`;
+
+/**
+ * Copies every existing contacts.address into contact_addresses (label "other",
+ * PIN/city/state/country read from the text where present). Ids are derived
+ * from the contact id, so two devices migrating the same synced contact create
+ * the SAME row instead of a duplicate. Verifies the count; a mismatch throws,
+ * rolling back the whole v4 step. contacts.address itself is left untouched.
+ */
+export async function migrateLegacyAddresses(db: SQLiteDatabase): Promise<{ contacts: number; created: number }> {
+  const rows = await db.getAllAsync<{ id: string; address: string | null }>(
+    `SELECT id, address FROM contacts WHERE deleted_at IS NULL AND address IS NOT NULL AND TRIM(address) <> ''`,
+  );
+  const now = new Date().toISOString();
+  let expected = 0;
+  for (const r of rows) {
+    const parts = r.address!
+      .split(' | ')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const full = parts[i]!;
+      const p = parseAddressParts(full);
+      expected += 1;
+      await db.runAsync(
+        `INSERT OR IGNORE INTO contact_addresses (id, contact_id, label, full_address, city, state, country, postal_code,
+           position, created_at, updated_at, needs_push)
+         VALUES (?, ?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        await deterministicId(`legacy_address:${r.id}:${i}`), r.id, full.slice(0, 1000),
+        p.city, p.state, p.country, p.postalCode, i, now, now,
+      );
+    }
+  }
+  const check = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM contact_addresses');
+  if ((check?.n ?? 0) < expected) {
+    throw new Error(`Address migration incomplete: expected ${expected}, found ${check?.n ?? 0}. Nothing was changed.`);
+  }
+  return { contacts: rows.length, created: expected };
+}
 
 export const SCHEMA_VERSION = migrations[migrations.length - 1]!.version;
 

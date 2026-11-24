@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar';
 import EventModeBanner from '@/components/EventModeBanner';
 import { useAuth } from '@/auth/AuthProvider';
 import { firstNameOf } from '@/auth/userName';
-import { useWebLayout } from '@/hooks/useWebLayout';
+import { useWebLayout } from '@/web/hooks/useWebLayout';
 import { getDashboardStats, getFavourites, getRecentContacts } from '@/services/contactService';
 import { useContactsVersion } from '@/services/dataEvents';
 import { getCachedOrganization } from '@/services/orgService';

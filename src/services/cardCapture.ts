@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { pickFromGalleryAndCrop, takePhotoAndCrop } from '@/services/cameraService';
-import { isDocumentScannerAvailable, scanCardAutomatically } from '@/services/documentScannerService';
+import * as ImagePicker from 'expo-image-picker';
+import { isDocumentScannerAvailable, scanCardAutomatically, scanCardsAutomatically } from '@/services/documentScannerService';
 import { prepareImage } from '@/services/imageService';
 
 /**
@@ -32,4 +33,30 @@ export async function captureCard(from: CaptureSource): Promise<CardImage | null
     from === 'auto' ? await scanCardAutomatically() : from === 'camera' ? await takePhotoAndCrop() : await pickFromGalleryAndCrop();
   if (!picked) return null;
   return prepareImage(picked.uri, { width: picked.width, height: picked.height });
+}
+
+/**
+ * Batch capture: several cards at once.
+ *  'scan'    → Google's scanner (phone build), up to 20 cards, each auto-cropped
+ *  'gallery' → pick several photos (phone or website)
+ * Every image is normalised with prepareImage. Resolves [] when cancelled.
+ */
+export type BatchSource = 'scan' | 'gallery';
+
+export async function captureMany(from: BatchSource, max = 20): Promise<CardImage[]> {
+  let picked: { uri: string; width: number; height: number }[] = [];
+  if (from === 'scan') {
+    picked = await scanCardsAutomatically(max);
+  } else {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: max,
+      quality: 1,
+    });
+    if (!result.canceled) picked = (result.assets ?? []).map((a) => ({ uri: a.uri, width: a.width, height: a.height }));
+  }
+  const out: CardImage[] = [];
+  for (const p of picked.slice(0, max)) out.push(await prepareImage(p.uri, { width: p.width, height: p.height }));
+  return out;
 }

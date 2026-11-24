@@ -15,6 +15,7 @@ import CategoryPicker from '@/components/CategoryPicker';
 import { countryByIso } from '@/data/countries';
 import { createContact, displayName, findDuplicates, getContactDetails, updateContact } from '@/services/contactService';
 import { scanSession } from '@/services/scanSession';
+import { batchScan } from '@/services/batchScan';
 import { describeAdded, mergeBackSide } from '@/services/cardMerge';
 import { checkPhoneDraft, phoneToDraft } from '@/utils/phone';
 import { validateEmail, validatePersonName } from '@/utils/validation';
@@ -29,15 +30,16 @@ import {
   type EventWithCount,
 } from '@/services/activityService';
 import { todayKey } from '@/utils/dates';
-import type { ContactField, ContactInput, EmailDraft, PhoneDraft } from '@/types/contact';
+import type { AddressDraft, ContactField, ContactInput, EmailDraft, PhoneDraft } from '@/types/contact';
+import AddressListEditor from '@/components/AddressListEditor';
 
 type TextKey = 'personName' | 'companyName' | 'designation' | 'website' | 'address';
 type TextForm = Record<TextKey, string>;
 const emptyText: TextForm = { personName: '', companyName: '', designation: '', website: '', address: '' };
 
 const CHECK = 'Auto-detected — please check this.';
-const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[], cats: string[], fav: boolean) =>
-  JSON.stringify([t, p, e, [...cats].sort(), fav]);
+const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[], cats: string[], fav: boolean, a: AddressDraft[]) =>
+  JSON.stringify([{ ...t, address: '' }, p, e, [...cats].sort(), fav, a]);
 
 /**
  * Screen 5 – Review and Edit Contact.
@@ -47,7 +49,8 @@ const snapshot = (t: TextForm, p: PhoneDraft[], e: EmailDraft[], cats: string[],
  */
 export default function ReviewContactScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ id?: string; addBack?: string }>();
+  const params = useLocalSearchParams<{ id?: string; addBack?: string; batchItem?: string }>();
+  const batchItemId = params.batchItem ?? null; // reviewing one card of a batch (services/batchScan)
   const editId = params.id ?? null;
   const isEdit = !!editId;
   const addingBack = isEdit && params.addBack === '1';
@@ -57,6 +60,8 @@ export default function ReviewContactScreen() {
   const [text, setText] = useState<TextForm>(emptyText);
   const [phones, setPhones] = useState<PhoneDraft[]>([]);
   const [emails, setEmails] = useState<EmailDraft[]>([]);
+  const [addresses, setAddresses] = useState<AddressDraft[]>([]);
+  const [initialAddresses, setInitialAddresses] = useState('');
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [favourite, setFavourite] = useState(false);
   const [initial, setInitial] = useState('');
@@ -113,7 +118,9 @@ export default function ReviewContactScreen() {
           setEmails(e);
           setCategoryIds(details.categoryIds);
           setFavourite(c.isFavourite);
-          setInitial(snapshot(t, p, e, details.categoryIds, c.isFavourite));
+          setAddresses(details.addresses);
+          setInitialAddresses(JSON.stringify(details.addresses));
+          setInitial(snapshot(t, p, e, details.categoryIds, c.isFavourite, details.addresses));
           setImagePath(c.cardImagePath);
           setRawOcr(c.rawOcrText);
           setBackImagePath(c.cardBackImagePath);
@@ -122,7 +129,14 @@ export default function ReviewContactScreen() {
           // P11: "Add back side" on this contact → merge what the back adds (front data always wins).
           const s = scanSession.get();
           if (addingBack && s.draft && s.targetContactId === editId) {
-            const current: ContactInput = { ...t, phones: p, emails: e, cardImagePath: c.cardImagePath, rawOcrText: c.rawOcrText };
+            const current: ContactInput = {
+              ...t,
+              phones: p,
+              emails: e,
+              addresses: details.addresses,
+              cardImagePath: c.cardImagePath,
+              rawOcrText: c.rawOcrText,
+            };
             const { merged, added } = mergeBackSide(current, s.draft);
             const mt: TextForm = {
               personName: merged.personName,
@@ -135,6 +149,8 @@ export default function ReviewContactScreen() {
             setInitialText(mt); // so "please check" hints show on the newly filled fields
             setPhones(merged.phones);
             setEmails(merged.emails);
+            setAddresses(merged.addresses ?? details.addresses);
+            setInitialAddresses(JSON.stringify(merged.addresses ?? details.addresses));
             setRawOcr(merged.rawOcrText);
             setBackImagePath(s.draft.cardBackImagePath ?? null);
             setLowConfidence(s.lowConfidence.filter((f) => added.includes(f)));
@@ -162,7 +178,10 @@ export default function ReviewContactScreen() {
         setInitialText(t);
         setPhones(p);
         setEmails(e);
-        setInitial(snapshot(t, p, e, [], false));
+        const a = d?.addresses ?? [];
+        setAddresses(a);
+        setInitialAddresses(JSON.stringify(a));
+        setInitial(snapshot(t, p, e, [], false, a));
         setImagePath(d?.cardImagePath ?? s.image?.uri ?? null);
         setBackImagePath(d?.cardBackImagePath ?? s.back?.uri ?? null);
         setRawOcr(d?.rawOcrText ?? s.ocr?.text ?? null);
@@ -179,7 +198,7 @@ export default function ReviewContactScreen() {
   );
   const emailErrors = useMemo(() => emails.map((e) => validateEmail(e.address)).filter(Boolean), [emails]);
   const hasErrors = !!nameError || phoneErrors.length > 0 || emailErrors.length > 0;
-  const dirty = snapshot(text, phones, emails, categoryIds, favourite) !== initial || (isEdit && backImagePath !== initialBack);
+  const dirty = snapshot(text, phones, emails, categoryIds, favourite, addresses) !== initial || (isEdit && backImagePath !== initialBack);
 
   const set = (k: TextKey) => (v: string) => setText((f) => ({ ...f, [k]: v }));
   const warn = (k: ContactField & TextKey) =>
@@ -189,6 +208,7 @@ export default function ReviewContactScreen() {
     ...text,
     phones,
     emails,
+    addresses,
     cardImagePath: imagePath,
     cardBackImagePath: backImagePath,
     rawOcrText: rawOcr,
@@ -214,6 +234,13 @@ export default function ReviewContactScreen() {
           Alert.alert('Contact saved', `But the meeting details could not be saved: ${e instanceof Error ? e.message : 'unknown error'}`);
         }
         if (perm) showPermissionHint(perm);
+        if (batchItemId) {
+          // Back to the batch grid, where this card now shows "Saved".
+          batchScan.markSaved(batchItemId, created.id);
+          scanSession.clear();
+          router.back();
+          return;
+        }
         afterCreate(created.id, created.personName);
       }
     } catch (e) {
@@ -300,6 +327,11 @@ export default function ReviewContactScreen() {
   };
 
   const leave = () => {
+    if (batchItemId) {
+      scanSession.clear();
+      router.back();
+      return;
+    }
     if (scanSession.get().batch && !isEdit) {
       // Leaving a batch discards the cards that weren't reviewed yet.
       scanSession.clear();
@@ -315,6 +347,7 @@ export default function ReviewContactScreen() {
   };
 
   const onCancel = () => {
+    if (batchItemId) return leave(); // the card stays in the batch, unsaved
     if (batchPos) {
       const left = batchPos.total - batchPos.index;
       Alert.alert('Stop batch scanning?', `This card${left ? ` and the ${left} after it` : ''} won't be saved. Cards you already saved stay.`, [
@@ -408,7 +441,12 @@ export default function ReviewContactScreen() {
           <EmailListEditor value={emails} onChange={setEmails} showErrors={submitted} />
           <View style={{ height: spacing.md }} />
           <InputField label="Website" value={text.website} onChangeText={set('website')} keyboardType="url" autoCapitalize="none" autoCorrect={false} />
-          <InputField label="Address" value={text.address} onChangeText={set('address')} warning={warn('address')} multiline />
+          <Text style={[styles.fieldLabel, { marginTop: spacing.sm }]}>Addresses</Text>
+          <AddressListEditor
+            value={addresses}
+            onChange={setAddresses}
+            warning={lowConfidence.includes('address') && JSON.stringify(addresses) === initialAddresses ? CHECK : null}
+          />
         </FormSection>
 
         {!isEdit && (

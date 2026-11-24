@@ -1,7 +1,8 @@
 // Pockit — Edge Function `scan-card` (used by the WEB app; phones read cards on-device).
 //
 // POST { image: <base64 JPEG/PNG, no data: prefix>, mimeType: "image/jpeg" }
-//   → { lines: string[], fields: { personName, companyName, designation, phone, email, website, address } }
+//   → { lines: string[], fields: { personName, companyName, designation, phone, email, website, address,
+//                                    phones: [{ raw, label, extension }], addresses: [{ label, fullAddress, city, state, country, postalCode }] } }
 //
 // Security
 //   • Only signed-in Pockit users: the caller's access token is checked with Supabase Auth.
@@ -50,10 +51,20 @@ Return JSON only, following the schema.
 - personName: the person's name only (no title like "Mr."), not the company.
 - companyName: the organisation's name.
 - designation: the job title.
-- phones: every phone number as printed, INCLUDING any country code like +91. Exclude fax numbers.
+- phones: EVERY number on the card, including fax numbers, each as its own item:
+    number    = digits as printed INCLUDING any country/area code (e.g. "+91-44 42235400"); leave out
+                notes like "(D)" and the extension.
+    type      = what the card calls it: "mobile", "landline" (Tel/Ph/Board), "office", "direct" (D/Direct),
+                "fax", "whatsapp", or "" when the card gives no label. Do not guess.
+    extension = digits after "Ext"/"Extn"/"x", else "".
+  "Fax: 228747, 227343" with one shared prefix = two numbers: write the second one in full with the same prefix.
 - emails: every email address.
 - website: the website (without "Website:" labels).
-- address: the full postal address on one line, parts separated by ", ".`;
+- addresses: EVERY separate postal address on the card, each as its own item (do not merge them):
+    label       = "registered", "corporate", "head", "branch", "regional", "factory" (also works/plant),
+                  "warehouse", "office", "home", or "other" when the card does not say.
+    fullAddress = the complete address on one line, parts separated by ", ", without the label words.
+    city, state, country, postalCode = only when printed on the card, else "".`;
 
 const SCHEMA = {
   type: 'OBJECT',
@@ -62,13 +73,37 @@ const SCHEMA = {
     personName: { type: 'STRING' },
     companyName: { type: 'STRING' },
     designation: { type: 'STRING' },
-    phones: { type: 'ARRAY', items: { type: 'STRING' } },
+    phones: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: { number: { type: 'STRING' }, type: { type: 'STRING' }, extension: { type: 'STRING' } },
+        required: ['number', 'type', 'extension'],
+      },
+    },
     emails: { type: 'ARRAY', items: { type: 'STRING' } },
     website: { type: 'STRING' },
-    address: { type: 'STRING' },
+    addresses: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: { type: 'STRING' },
+          fullAddress: { type: 'STRING' },
+          city: { type: 'STRING' },
+          state: { type: 'STRING' },
+          country: { type: 'STRING' },
+          postalCode: { type: 'STRING' },
+        },
+        required: ['label', 'fullAddress', 'city', 'state', 'country', 'postalCode'],
+      },
+    },
   },
-  required: ['lines', 'personName', 'companyName', 'designation', 'phones', 'emails', 'website', 'address'],
+  required: ['lines', 'personName', 'companyName', 'designation', 'phones', 'emails', 'website', 'addresses'],
 };
+
+const PHONE_TYPES = ['mobile', 'landline', 'office', 'direct', 'fax', 'whatsapp'];
+const ADDRESS_LABELS = ['registered', 'corporate', 'head', 'branch', 'regional', 'factory', 'warehouse', 'office', 'home', 'other'];
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -120,6 +155,29 @@ Deno.serve(async (req) => {
     const r = JSON.parse(text || '{}');
     const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
     const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+    const objects = (v: unknown) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []) as Record<string, unknown>[];
+    const orNull = (v: unknown) => str(v) || null;
+
+    const phones = objects(r.phones)
+      .map((p) => {
+        const type = str(p.type).toLowerCase();
+        const ext = str(p.extension).replace(/\D/g, '').slice(0, 10);
+        return { raw: str(p.number), label: PHONE_TYPES.includes(type) ? type : null, extension: ext || null };
+      })
+      .filter((p) => p.raw.replace(/\D/g, '').length >= 6);
+    const addresses = objects(r.addresses)
+      .map((a) => {
+        const label = str(a.label).toLowerCase();
+        return {
+          label: ADDRESS_LABELS.includes(label) ? label : 'other',
+          fullAddress: str(a.fullAddress),
+          city: orNull(a.city),
+          state: orNull(a.state),
+          country: orNull(a.country),
+          postalCode: orNull(a.postalCode),
+        };
+      })
+      .filter((a) => a.fullAddress);
 
     return json({
       lines: list(r.lines),
@@ -127,10 +185,12 @@ Deno.serve(async (req) => {
         personName: str(r.personName),
         companyName: str(r.companyName),
         designation: str(r.designation),
-        phone: list(r.phones).join(', '),
+        phone: phones.map((p) => (p.extension ? `${p.raw} ext. ${p.extension}` : p.raw)).join(', '),
         email: list(r.emails).join(', '),
         website: str(r.website),
-        address: str(r.address),
+        address: addresses.map((a) => a.fullAddress).join(' | '),
+        phones,
+        addresses,
       },
     });
   } catch (e) {

@@ -8,7 +8,9 @@ import { emitContactsChanged } from '@/services/dataEvents';
 import { requestSync } from '@/services/syncService';
 import { shouldShareNewContact } from '@/services/orgService';
 import { draftToRowValues, formatPhone, phoneMatchKey } from '@/utils/phone';
+import { parseAddressParts, summariseAddresses } from '@/services/addressExtraction';
 import type {
+  AddressDraft,
   Contact,
   ContactEmail,
   ContactInput,
@@ -35,9 +37,31 @@ const splitList = (s: string | null | undefined) =>
     .map((p) => p.trim())
     .filter(Boolean);
 
-export interface CleanInput extends Omit<ContactInput, 'phones' | 'emails'> {
+export interface CleanInput extends Omit<ContactInput, 'phones' | 'emails' | 'addresses'> {
   phones: PhoneDraft[];
   emails: EmailDraft[];
+  addresses: AddressDraft[];
+}
+
+const blankAddress = (fullAddress: string): AddressDraft => ({
+  label: 'other',
+  fullAddress,
+  city: '',
+  state: '',
+  country: '',
+  postalCode: '',
+});
+
+/** Legacy one-line address text ("A | B") → address drafts. */
+export function addressesFromText(text: string | null | undefined): AddressDraft[] {
+  return (text ?? '')
+    .split(' | ')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((full) => {
+      const p = parseAddressParts(full);
+      return { ...blankAddress(full), city: p.city ?? '', state: p.state ?? '', country: p.country ?? '', postalCode: p.postalCode ?? '' };
+    });
 }
 
 /** Trims text, drops empty phone/email rows and turns empty strings into null. */
@@ -53,7 +77,9 @@ export function cleanInput(input: ContactInput): CleanInput {
     phones: input.phones.filter((p) => /\d/.test(p.number)).map((p) => ({ ...p, number: p.number.trim() })),
     emails: input.emails.filter((e) => e.address.trim()).map((e) => ({ ...e, address: e.address.trim().toLowerCase() })),
     website: t(input.website),
-    address: t(input.address),
+    // Address rows with no text are dropped; without a list, the legacy text becomes one address.
+    addresses: (input.addresses ?? addressesFromText(input.address)).filter((a) => a.fullAddress.trim()),
+    address: null, // recomputed from `addresses` by summarise()
     cardImagePath: input.cardImagePath,
     cardBackImagePath: input.cardBackImagePath,
     rawOcrText: t(input.rawOcrText),
@@ -62,12 +88,20 @@ export function cleanInput(input: ContactInput): CleanInput {
   };
 }
 
-/** Legacy summary columns: "+91 98765 43210, +1 415-555-0142" / "a@b.com, c@d.com". */
-export function summarise(data: Pick<CleanInput, 'phones' | 'emails'>): { phone: string | null; email: string | null } {
+/**
+ * Legacy summary columns kept in sync with the structured rows:
+ * "+91 98765 43210, +91 44 4223 5400 ext. 12" / "a@b.com, c@d.com" / "Regd. address | Factory address".
+ */
+export function summarise(data: Pick<CleanInput, 'phones' | 'emails'> & { addresses?: AddressDraft[] }): {
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+} {
   const phones = data.phones.map((p) => formatPhone(draftToRowValues(p)));
   return {
     phone: phones.length ? phones.join(', ') : null,
     email: data.emails.length ? data.emails.map((e) => e.address).join(', ') : null,
+    address: summariseAddresses((data.addresses ?? []).map((a) => ({ fullAddress: a.fullAddress.trim() }))),
   };
 }
 
@@ -95,18 +129,33 @@ export interface ContactDetails {
   phones: ContactPhone[];
   emails: ContactEmail[];
   categoryIds: string[];
+  /** Structured addresses; falls back to the summary text for contacts that have no rows yet. */
+  addresses: AddressDraft[];
 }
 
 /** Contact + its structured phones and emails (profile & edit screens). */
 export async function getContactDetails(id: string): Promise<ContactDetails | null> {
   const contact = await repo.findById(id);
   if (!contact) return null;
-  const [phones, emails, categoryIds] = await Promise.all([
+  const [phones, emails, categoryIds, rows] = await Promise.all([
     structured.findPhones(id),
     structured.findEmails(id),
     categories.categoryIdsForContact(id),
+    structured.findAddresses(id),
   ]);
-  return { contact, phones, emails, categoryIds };
+  // Older/synced contacts may only have the summary text — show it so it is never lost on the next save.
+  const addresses: AddressDraft[] = rows.length
+    ? rows.map((a) => ({
+        id: a.id,
+        label: a.label,
+        fullAddress: a.fullAddress,
+        city: a.city ?? '',
+        state: a.state ?? '',
+        country: a.country ?? '',
+        postalCode: a.postalCode ?? '',
+      }))
+    : addressesFromText(contact.address);
+  return { contact, phones, emails, categoryIds, addresses };
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -153,7 +202,6 @@ export async function createContact(input: ContactInput): Promise<Contact> {
     designation: data.designation,
     ...summarise(data),
     website: data.website,
-    address: data.address,
     cardImagePath,
     nativeContactId: null,
     rawOcrText: data.rawOcrText,
@@ -169,6 +217,7 @@ export async function createContact(input: ContactInput): Promise<Contact> {
       await repo.insertContact(contact);
       await structured.replacePhones(id, data.phones, ts);
       await structured.replaceEmails(id, data.emails, ts);
+      await structured.replaceAddresses(id, data.addresses, ts);
       if (data.categoryIds?.length) await categories.setContactCategories(id, data.categoryIds, ts);
     });
   } catch (e) {
@@ -209,7 +258,6 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     designation: data.designation,
     ...summarise(data),
     website: data.website,
-    address: data.address,
     rawOcrText: data.rawOcrText,
     isFavourite: data.isFavourite ?? existing.isFavourite,
     cardImagePath,
@@ -220,6 +268,7 @@ export async function updateContact(id: string, input: ContactInput): Promise<Co
     await repo.updateContactRow(updated, imageChanged, backChanged);
     await structured.replacePhones(id, data.phones, now);
     await structured.replaceEmails(id, data.emails, now);
+    await structured.replaceAddresses(id, data.addresses, now);
     if (data.categoryIds) await categories.setContactCategories(id, data.categoryIds, now);
   });
   changed();

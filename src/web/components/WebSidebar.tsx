@@ -5,7 +5,7 @@ import { isSuperAdmin } from '@/services/superAdminService';
 import type { BottomTabBarProps } from 'expo-router/build/layouts/Tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing } from '@/constants/theme';
-import { SIDEBAR_WIDTH } from '@/hooks/useWebLayout';
+import { SIDEBAR_WIDTH } from '@/web/hooks/useWebLayout';
 import { useAuth } from '@/auth/AuthProvider';
 import { useContactsVersion } from '@/services/dataEvents';
 import { getCachedOrganization, type MyOrganization } from '@/services/orgService';

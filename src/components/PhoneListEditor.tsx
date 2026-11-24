@@ -8,8 +8,6 @@ import OptionSheet from '@/components/OptionSheet';
 import { checkPhoneDraft } from '@/utils/phone';
 import { LABEL_TEXT, PHONE_LABELS, type PhoneDraft, type PhoneLabel } from '@/types/contact';
 
-const MAX_NUMBERS = 8;
-
 /**
  * Multiple labelled phone numbers, each with its own country code.
  * The first number is the main one (used by the Call button); the star moves a number to the top.
@@ -26,6 +24,7 @@ export default function PhoneListEditor({
 }) {
   const [countryFor, setCountryFor] = useState<number | null>(null);
   const [labelFor, setLabelFor] = useState<number | null>(null);
+  const [extOpen, setExtOpen] = useState<Set<number>>(new Set());
 
   // Editing the country or number counts as confirming it; changing the label doesn't.
   const update = (i: number, patch: Partial<PhoneDraft>) =>
@@ -37,7 +36,7 @@ export default function PhoneListEditor({
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
   const makeMain = (i: number) => onChange([value[i]!, ...value.filter((_, idx) => idx !== i)]);
   const add = () =>
-    onChange([...value, { label: value.length === 0 ? 'mobile' : 'work', countryIso: null, number: '' }]);
+    onChange([...value, { label: value.length === 0 ? 'mobile' : 'landline', countryIso: null, number: '' }]);
 
   return (
     <View>
@@ -75,12 +74,32 @@ export default function PhoneListEditor({
               </Pressable>
             </View>
 
+            {(!!p.extension || extOpen.has(i)) && (
+              <View style={styles.extRow}>
+                <Text style={styles.extLabel}>Ext.</Text>
+                <TextInput
+                  value={p.extension ?? ''}
+                  onChangeText={(t) => update(i, { extension: t.replace(/\D/g, '').slice(0, 10) || null })}
+                  placeholder="e.g. 204"
+                  placeholderTextColor={colors.textSubtle}
+                  keyboardType="number-pad"
+                  style={styles.extInput}
+                  accessibilityLabel={`Extension for phone number ${i + 1}`}
+                />
+              </View>
+            )}
+
             <View style={styles.meta}>
               {i === 0 ? (
                 <Text style={styles.main}>★ Main number</Text>
               ) : (
                 <Pressable onPress={() => makeMain(i)} hitSlop={8} accessibilityRole="button">
                   <Text style={styles.makeMain}>☆ Make main</Text>
+                </Pressable>
+              )}
+              {!p.extension && !extOpen.has(i) && (
+                <Pressable onPress={() => setExtOpen((s) => new Set(s).add(i))} hitSlop={8} accessibilityRole="button">
+                  <Text style={styles.makeMain}>+ Extension</Text>
                 </Pressable>
               )}
               <Pressable onPress={() => remove(i)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove phone number ${i + 1}`}>
@@ -93,12 +112,10 @@ export default function PhoneListEditor({
         );
       })}
 
-      {value.length < MAX_NUMBERS && (
-        <Pressable onPress={add} style={styles.add} accessibilityRole="button">
-          <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
-          <Text style={styles.addText}>{value.length ? 'Add another number' : 'Add phone number'}</Text>
-        </Pressable>
-      )}
+      <Pressable onPress={add} style={styles.add} accessibilityRole="button">
+        <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+        <Text style={styles.addText}>{value.length ? 'Add another number' : 'Add phone number'}</Text>
+      </Pressable>
 
       <CountryPicker
         visible={countryFor !== null}
@@ -155,7 +172,18 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   labelText: { fontSize: 12, fontWeight: '600', color: colors.primaryDark },
-  meta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, paddingHorizontal: spacing.xs },
+  meta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md, marginTop: 6, paddingHorizontal: spacing.xs },
+  extRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 6 },
+  extLabel: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
+  extInput: {
+    width: 120,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    fontSize: 15,
+    color: colors.text,
+  },
   main: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   makeMain: { fontSize: 12, color: colors.primary, fontWeight: '600' },
   remove: { fontSize: 12, color: colors.danger, fontWeight: '600' },

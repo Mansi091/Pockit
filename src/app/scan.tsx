@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
 import CustomButton from '@/components/CustomButton';
@@ -8,8 +8,9 @@ import ImagePreview from '@/components/ImagePreview';
 import FormError from '@/components/FormError';
 import OptionSheet from '@/components/OptionSheet';
 import EventModeBanner from '@/components/EventModeBanner';
-import { isDocumentScannerAvailable, scanCardsAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';
-import { CAPTURE_LABEL, captureCard, captureSources, type CaptureSource, type CardImage } from '@/services/cardCapture';
+import { isDocumentScannerAvailable, ScannerUnavailableError } from '@/services/documentScannerService';
+import { CAPTURE_LABEL, captureCard, captureMany, captureSources, type BatchSource, type CaptureSource, type CardImage } from '@/services/cardCapture';
+import { batchScan } from '@/services/batchScan';
 import { prepareImage } from '@/services/imageService';
 import { scanSession } from '@/services/scanSession';
 import { isOcrAvailable } from '@/services/ocrService';
@@ -74,17 +75,15 @@ export default function ScanScreen() {
     }
   };
 
-  // P12 batch: capture up to 20 cards in one go, then review them one after another.
+  // Batch: capture many cards → Batch screen reads them all → save all / review each.
   const [batchBusy, setBatchBusy] = useState(false);
-  const runBatch = async () => {
+  const runBatch = async (from: BatchSource = 'scan') => {
     setBatchBusy(true);
     try {
-      const scanned = await scanCardsAutomatically(20);
-      if (!scanned.length) return;
-      const prepared = [];
-      for (const c of scanned) prepared.push(await prepareImage(c.uri, { width: c.width, height: c.height }));
-      scanSession.startBatch(prepared);
-      router.push('/processing');
+      const cards = await captureMany(from, 20);
+      if (!cards.length) return;
+      batchScan.start(cards);
+      router.push('/batch' as Href);
     } catch (e) {
       Alert.alert(
         e instanceof ScannerUnavailableError ? 'Automatic scan unavailable' : 'Could not scan the cards',
@@ -259,17 +258,25 @@ export default function ScanScreen() {
               title="Scan several cards"
               icon="layers-outline"
               variant="secondary"
-              onPress={runBatch}
+              onPress={() => runBatch('scan')}
               loading={batchBusy}
               disabled={!!busy}
             />
-            <Text style={styles.batchHint}>Several cards: scan them one after another (up to 20), then check each before it's saved.</Text>
+            <Text style={styles.batchHint}>Several cards: scan up to 20 in a row. Pockit reads them all, then you save them together or check each one.</Text>
             <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy || batchBusy} />
           </>
         ) : (
           <CustomButton title={Platform.OS === 'web' ? 'Scan with webcam' : 'Take photo'} icon={Platform.OS === 'web' ? 'videocam-outline' : 'camera-outline'} onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
         )}
         <CustomButton title={Platform.OS === 'web' ? 'Upload a photo' : 'Choose from gallery'} icon={Platform.OS === 'web' ? 'cloud-upload-outline' : 'images-outline'} variant="outline" onPress={() => run('front', 'gallery')} loading={busy === 'front:gallery'} disabled={!!busy} />
+        <CustomButton
+          title={Platform.OS === 'web' ? 'Upload several cards' : 'Choose several photos'}
+          icon="albums-outline"
+          variant="outline"
+          onPress={() => runBatch('gallery')}
+          loading={batchBusy}
+          disabled={!!busy}
+        />
         <CustomButton
           title="Enter details manually"
           icon="create-outline"
