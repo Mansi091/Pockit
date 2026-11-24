@@ -1,6 +1,6 @@
 jest.mock('@/lib/supabase', () => ({ requireSupabase: jest.fn() }));
 
-import { contactsToCsv, EXPORT_HEADERS, exportFileName, type SharedContact } from '@/services/teamService';
+import { contactsToCsv, EXPORT_HEADERS, exportFileName, groupByCategory, UNCATEGORISED, type SharedContact } from '@/services/teamService';
 
 const contact = (over: Partial<SharedContact> = {}): SharedContact => ({
   id: 'c1',
@@ -16,6 +16,7 @@ const contact = (over: Partial<SharedContact> = {}): SharedContact => ({
   emails: ['hemant@everestind.com'],
   addresses: [{ label: 'registered', fullAddress: '5 Park Street, Kolkata 700016' }],
   events: ['Pune Expo 2026'],
+  categories: [{ id: 'k1', name: 'Clients', color: '#2563EB' }],
   savedAt: '2026-11-24T10:00:00.000Z',
   ...over,
 });
@@ -32,7 +33,7 @@ describe('team export (CSV for Excel)', () => {
   it('one row per contact with the employee who shared it', () => {
     const [, row] = rows(contactsToCsv([contact()], () => 'Priya Sharma'));
     expect(row).toBe(
-      'Hemant Khurana,Everest Industries,Mobile: +91 98672 99476; Fax: +91 22 4000 9999,hemant@everestind.com,everestind.com,"Registered office: 5 Park Street, Kolkata 700016",CEO,Pune Expo 2026,2026-11-24,Priya Sharma',
+      'Hemant Khurana,Everest Industries,Mobile: +91 98672 99476; Fax: +91 22 4000 9999,hemant@everestind.com,everestind.com,"Registered office: 5 Park Street, Kolkata 700016",Clients,CEO,Pune Expo 2026,2026-11-24,Priya Sharma',
     );
   });
 
@@ -54,6 +55,23 @@ describe('team export (CSV for Excel)', () => {
     const [, row] = rows(contactsToCsv([contact({ personName: '=HYPERLINK("http://evil")', phones: [], addresses: [], events: [] })], () => '@me'));
     expect(row!.endsWith(",'@me")).toBe(true);
     expect(row).toContain(`"'=HYPERLINK(""http://evil"")"`);
+  });
+
+  it('groups shared contacts by category: biggest first, "No category" last, a contact can be in two', () => {
+    const clients = { id: 'a', name: 'Clients', color: '#111111' };
+    const vendors = { id: 'b', name: 'Vendors', color: '#222222' };
+    const clientsOfOtherMember = { id: 'z', name: 'clients ', color: '#333333' }; // same name, other person
+    const groups = groupByCategory([
+      contact({ id: '1', categories: [vendors] }),
+      contact({ id: '2', categories: [clients, vendors] }),
+      contact({ id: '3', categories: [clientsOfOtherMember] }),
+      contact({ id: '4', categories: [] }),
+    ]);
+    expect(groups.map((g) => [g.name, g.contacts.map((c) => c.id)])).toEqual([
+      ['Clients', ['2', '3']],
+      ['Vendors', ['1', '2']],
+      [UNCATEGORISED, ['4']],
+    ]);
   });
 
   it('file names are safe', () => {

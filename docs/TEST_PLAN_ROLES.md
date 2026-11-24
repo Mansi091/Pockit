@@ -102,7 +102,8 @@ Work top to bottom. Tick each box and write what you saw in **Notes** when somet
 | # | Step | Expected | ✓ | Notes |
 |---|---|---|---|---|
 | 5b.1 | Sign out and sign in again as B | Lands on **Team** (first item in the sidebar, briefcase icon) | ☐ | |
-| 5b.2 | Team page | Tiles: people in team, contacts shared with you, contacts saved by team; employees ranked by **shared** | ☐ | |
+| 5b.2 | Team page | Tiles: people in team, contacts shared with you, categories; employees ranked by **shared**; **no** "saved in total" / "kept private" numbers anywhere (needs **0008**) | ☐ | |
+| 5b.2a | "Shared contacts · by category" → click a category | Contacts from everyone in that category, each saying who shared it; categories used only on private contacts never appear | ☐ | |
 | 5b.3 | Click C | C's page lists **only** Contact-1 and Contact-3 with phones, emails, addresses, saved date — **not** Contact-2 | ☐ | |
 | 5b.4 | **Download (Excel)** on C's page, then **Download all shared (Excel)** on the Team page | A `.csv` file opens in Excel with one row per shared contact and a "Shared by" column | ☐ | |
 | 5b.5 | As C (member) and D (personal), look at the sidebar / open `/team` | No Team item; `/team` shows "For company admins" | ☐ | |

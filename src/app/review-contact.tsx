@@ -479,7 +479,7 @@ export default function ReviewContactScreen() {
                 <Text style={styles.shareTitle}>{shareWithOrg ? `${org.name} admins will see this contact` : 'Private — only you can see it'}</Text>
                 <Text style={styles.shareSub}>
                   {shareWithOrg
-                    ? 'Name, company, numbers, emails, website and addresses. Your notes and follow-ups stay private.'
+                    ? 'Name, company, numbers, emails, website, addresses and its categories. Your notes and follow-ups stay private.'
                     : `Turn on to share it with ${org.name}. You can change this later on the contact's page.`}
                 </Text>
               </View>

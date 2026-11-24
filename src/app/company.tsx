@@ -410,7 +410,7 @@ export default function CompanyScreen() {
                       {m.role === 'admin' ? '  · Admin' : ''}
                     </Text>
                     <Text style={styles.rowSub}>
-                      {m.sharedContacts} shared · {m.totalContacts} saved
+                      {m.sharedContacts} contact{m.sharedContacts === 1 ? '' : 's'} shared
                     </Text>
                   </View>
                 </Pressable>
@@ -418,7 +418,7 @@ export default function CompanyScreen() {
             )}
           </View>
           <Text style={styles.tip}>
-            Tap someone to see the contacts they shared; long-press to change their role or remove them. "Saved" counts contacts backed up to the cloud.
+            Tap someone to see the contacts they shared; long-press to change their role or remove them. You never see how many private contacts anyone keeps.
           </Text>
         </>
       )}

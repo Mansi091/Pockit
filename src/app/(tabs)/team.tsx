@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -7,7 +7,7 @@ import EmptyState from '@/components/EmptyState';
 import CustomButton from '@/components/CustomButton';
 import Avatar from '@/components/Avatar';
 import { getMemberStats, refreshMyOrganization, type MemberStats, type MyOrganization } from '@/services/orgService';
-import { contactsToCsv, downloadCsv, exportFileName, getSharedContacts, type SharedContact } from '@/services/teamService';
+import { contactsToCsv, downloadCsv, exportFileName, getSharedContacts, groupByCategory, type SharedContact } from '@/services/teamService';
 import { ADDRESS_LABEL_TEXT, LABEL_TEXT } from '@/types/contact';
 import { getCurrentUserId } from '@/database/db';
 
@@ -29,7 +29,7 @@ const canDownload = Platform.OS === 'web';
  * Only shared contacts are ever shown — the database enforces it (RLS).
  */
 export default function TeamDashboardScreen() {
-  const { member } = useLocalSearchParams<{ member?: string }>();
+  const { member, category } = useLocalSearchParams<{ member?: string; category?: string }>();
   const [org, setOrg] = useState<MyOrganization | null | undefined>(undefined);
   const [team, setTeam] = useState<MemberStats[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -58,22 +58,39 @@ export default function TeamDashboardScreen() {
   );
 
   const nameOf = useCallback((id: string) => team.find((m) => m.userId === id)?.displayName ?? 'Unknown', [team]);
-  const ranked = useMemo(() => [...team].sort((a, b) => b.sharedContacts - a.sharedContacts || b.totalContacts - a.totalContacts), [team]);
+  const ranked = useMemo(() => [...team].sort((a, b) => b.sharedContacts - a.sharedContacts || a.displayName.localeCompare(b.displayName)), [team]);
   const totals = useMemo(
     () => ({
       shared: team.reduce((n, m) => n + m.sharedContacts, 0),
-      saved: team.reduce((n, m) => n + m.totalContacts, 0),
       sharing: team.filter((m) => m.sharedContacts > 0).length,
     }),
     [team],
   );
+
+  // Everyone's shared contacts, for the "By category" overview and the download.
+  const [allShared, setAllShared] = useState<SharedContact[] | null>(null);
+  const [allError, setAllError] = useState<string | null>(null);
+  const teamKey = team.map((m) => `${m.userId}:${m.sharedContacts}`).join(',');
+  useEffect(() => {
+    if (!team.length) return;
+    let live = true;
+    setAllError(null);
+    getSharedContacts(team.map((m) => m.userId))
+      .then((l) => live && setAllShared(l))
+      .catch((e) => live && setAllError(e instanceof Error ? e.message : 'Could not load the shared contacts.'));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamKey]);
+  const groups = useMemo(() => groupByCategory(allShared ?? []), [allShared]);
 
   const exportAll = async () => {
     if (!org) return;
     setExporting(true);
     setExportMsg(null);
     try {
-      const list = await getSharedContacts(team.map((m) => m.userId));
+      const list = allShared ?? (await getSharedContacts(team.map((m) => m.userId)));
       if (list.length === 0) setExportMsg('Nothing to download yet — no one has shared a contact.');
       else downloadCsv(exportFileName(org.name), contactsToCsv(list, nameOf));
     } catch (e) {
@@ -105,6 +122,40 @@ export default function TeamDashboardScreen() {
     return <MemberContacts org={org} person={selected} onBack={() => router.setParams({ member: undefined })} />;
   }
 
+  // One category across the whole team.
+  const group = category !== undefined && allShared ? groups.find((g) => g.key === category) : undefined;
+  if (category !== undefined && allShared) {
+    return (
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <Pressable onPress={() => router.setParams({ category: undefined })} style={styles.back} accessibilityRole="button">
+          <Ionicons name="arrow-back" size={18} color={colors.text} />
+          <Text style={styles.backText}>{org.name} team</Text>
+        </Pressable>
+        <View style={styles.personHead}>
+          <View style={[styles.catIcon, { backgroundColor: group?.color ?? colors.surfaceMuted }]}>
+            <Ionicons name="pricetag" size={22} color={group?.color ? '#FFFFFF' : colors.textMuted} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.title} numberOfLines={1}>{group?.name ?? 'Category'}</Text>
+            <Text style={styles.rowSub}>
+              {group?.contacts.length ?? 0} shared contact{group?.contacts.length === 1 ? '' : 's'} · from{' '}
+              {new Set(group?.contacts.map((c) => c.ownerId)).size} people
+            </Text>
+          </View>
+          {canDownload && !!group?.contacts.length && (
+            <CustomButton
+              title="Download (Excel)"
+              icon="download-outline"
+              variant="outline"
+              onPress={() => downloadCsv(exportFileName(org.name, group.name), contactsToCsv(group.contacts, nameOf))}
+            />
+          )}
+        </View>
+        <ContactsBrowser list={group?.contacts ?? []} ownerName={nameOf} showCategories={false} />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.hero}>
@@ -119,7 +170,12 @@ export default function TeamDashboardScreen() {
       <View style={styles.tiles}>
         <Tile icon="people-outline" label="People in the team" value={team.length} sub={`${totals.sharing} sharing contacts`} />
         <Tile icon="share-social-outline" label="Contacts shared with you" value={totals.shared} sub="visible to company admins" />
-        <Tile icon="card-outline" label="Contacts saved by the team" value={totals.saved} sub="private unless shared" />
+        <Tile
+          icon="pricetags-outline"
+          label="Categories"
+          value={groups.filter((g) => g.key !== '').length}
+          sub="used on shared contacts"
+        />
       </View>
 
       <View style={styles.actions}>
@@ -153,7 +209,7 @@ export default function TeamDashboardScreen() {
               onPress={() => router.setParams({ member: m.userId })}
               style={({ hovered }) => [styles.row, i < ranked.length - 1 && styles.divider, hovered && { backgroundColor: colors.surfaceMuted }]}
               accessibilityRole="button"
-              accessibilityLabel={`${m.displayName}, ${m.sharedContacts} shared, ${m.totalContacts} saved`}
+              accessibilityLabel={`${m.displayName}, ${m.sharedContacts} shared`}
             >
               <Avatar name={m.displayName} size={40} />
               <View style={styles.rowMain}>
@@ -168,17 +224,48 @@ export default function TeamDashboardScreen() {
                 </View>
               </View>
               <Stat label="shared" value={m.sharedContacts} strong />
-              <Stat label="saved" value={m.totalContacts} />
               <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
             </Pressable>
           );
         })}
       </View>
 
+      <Text style={styles.section}>Shared contacts · by category</Text>
+      <View style={styles.list}>
+        {allError ? (
+          <Text style={[styles.notice, { padding: spacing.lg }]}>{allError}</Text>
+        ) : !allShared ? (
+          <ActivityIndicator color={colors.primary} style={{ margin: spacing.lg }} />
+        ) : groups.length === 0 ? (
+          <Text style={[styles.emptyText, { padding: spacing.lg }]}>No shared contacts yet.</Text>
+        ) : (
+          groups.map((g, i) => {
+            const people = new Set(g.contacts.map((c) => c.ownerId)).size;
+            return (
+              <Pressable
+                key={g.key || 'none'}
+                onPress={() => router.setParams({ category: g.key })}
+                style={({ hovered }) => [styles.row, i < groups.length - 1 && styles.divider, hovered && { backgroundColor: colors.surfaceMuted }]}
+                accessibilityRole="button"
+                accessibilityLabel={`${g.name}, ${g.contacts.length} contacts`}
+              >
+                <View style={[styles.catDot, { backgroundColor: g.color ?? colors.border }]} />
+                <View style={styles.rowMain}>
+                  <Text style={[styles.rowTitle, !g.color && { color: colors.textMuted }]} numberOfLines={1}>{g.name}</Text>
+                  <Text style={styles.rowSub}>from {people} {people === 1 ? 'person' : 'people'}</Text>
+                </View>
+                <Stat label="contacts" value={g.contacts.length} strong />
+                <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+              </Pressable>
+            );
+          })
+        )}
+      </View>
+
       <View style={styles.note}>
         <Ionicons name="lock-closed-outline" size={14} color={colors.textMuted} />
         <Text style={styles.noteText}>
-          You see only contacts people chose to share. Private contacts, notes and follow-ups are never shown. "Saved" counts contacts backed up to the cloud.
+          You see only contacts people chose to share, with the categories they put them in. Private contacts — and how many there are — notes and follow-ups are never shown.
         </Text>
       </View>
     </ScrollView>
@@ -197,7 +284,6 @@ function safeUserId(): string | null {
 function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: MemberStats; onBack: () => void }) {
   const [list, setList] = useState<SharedContact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -214,18 +300,6 @@ function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: 
       load();
     }, [load]),
   );
-
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!list || !q) return list ?? [];
-    return list.filter((c) =>
-      [c.personName, c.companyName, c.designation, ...c.emails, ...c.phones.map((p) => p.number), ...c.events]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [list, query]);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -253,8 +327,13 @@ function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: 
       </View>
 
       <View style={styles.tiles}>
-        <Tile icon="share-social-outline" label="Shared with the company" value={person.sharedContacts} sub="you can see these" />
-        <Tile icon="card-outline" label="Saved in total" value={person.totalContacts} sub={`${Math.max(0, person.totalContacts - person.sharedContacts)} kept private`} />
+        <Tile icon="share-social-outline" label={`Shared with ${org.name}`} value={person.sharedContacts} sub="the contacts you can see" />
+        <Tile
+          icon="pricetags-outline"
+          label="Categories"
+          value={list ? groupByCategory(list).filter((g) => g.key !== '').length : 0}
+          sub="on these contacts"
+        />
       </View>
 
       {error ? (
@@ -268,23 +347,83 @@ function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: 
           message={`${person.displayName} hasn't shared any contacts with ${org.name}. Their contacts stay private until they turn on "Share with ${org.name}".`}
         />
       ) : (
-        <>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={`Search ${list.length} shared contact${list.length === 1 ? '' : 's'}…`}
-            placeholderTextColor={colors.textSubtle}
-            style={styles.search}
-          />
-          {shown.length === 0 && <Text style={styles.notice}>No contact matches "{query}".</Text>}
-          <View style={{ gap: spacing.md }}>
-            {shown.map((c) => (
-              <ContactCardView key={c.id} c={c} />
-            ))}
-          </View>
-        </>
+        <ContactsBrowser list={list} />
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * Shared contacts with category chips ("All · Clients 3 · Vendors 2 · No
+ * category 1") and a search box. Used for one employee and for one category.
+ */
+function ContactsBrowser({
+  list,
+  ownerName,
+  showCategories = true,
+}: {
+  list: SharedContact[];
+  /** Set when contacts come from several people: each card says who shared it. */
+  ownerName?: (id: string) => string;
+  showCategories?: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState<string | null>(null); // null = all
+  const groups = useMemo(() => groupByCategory(list), [list]);
+  const hasCategories = groups.some((g) => g.key !== '');
+
+  const shown = useMemo(() => {
+    const inCat = cat === null ? list : (groups.find((g) => g.key === cat)?.contacts ?? []);
+    const q = query.trim().toLowerCase();
+    if (!q) return inCat;
+    return inCat.filter((c) =>
+      [c.personName, c.companyName, c.designation, ...c.emails, ...c.phones.map((p) => p.number), ...c.events, ...c.categories.map((x) => x.name)]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [list, groups, cat, query]);
+
+  return (
+    <>
+      {showCategories && hasCategories && (
+        <View style={styles.chips} accessibilityRole="tablist">
+          <Chip label="All" count={list.length} on={cat === null} onPress={() => setCat(null)} />
+          {groups.map((g) => (
+            <Chip key={g.key || 'none'} label={g.name} count={g.contacts.length} color={g.color} on={cat === g.key} onPress={() => setCat(g.key)} />
+          ))}
+        </View>
+      )}
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder={`Search ${list.length} shared contact${list.length === 1 ? '' : 's'}…`}
+        placeholderTextColor={colors.textSubtle}
+        style={styles.search}
+      />
+      {shown.length === 0 && <Text style={styles.notice}>{query ? `No contact matches "${query}".` : 'No contacts here.'}</Text>}
+      <View style={{ gap: spacing.md }}>
+        {shown.map((c) => (
+          <ContactCardView key={c.id} c={c} sharedBy={ownerName?.(c.ownerId)} />
+        ))}
+      </View>
+    </>
+  );
+}
+
+function Chip({ label, count, color, on, onPress }: { label: string; count: number; color?: string | null; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ hovered }) => [styles.chip, on && styles.chipOn, !on && hovered && { backgroundColor: colors.surfaceMuted }]}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: on }}
+    >
+      {color ? <View style={[styles.chipDot, { backgroundColor: color }]} /> : null}
+      <Text style={[styles.chipText, on && { color: colors.textOnPrimary }]}>{label}</Text>
+      <Text style={[styles.chipCount, on && { color: colors.textOnPrimary }]}>{count}</Text>
+    </Pressable>
   );
 }
 
@@ -293,7 +432,7 @@ function MemberContacts({ org, person, onBack }: { org: MyOrganization; person: 
  * Name (+ designation) → Company → Contact number → Email → Website → Address.
  * Every row is shown; "—" marks a detail the card didn't have.
  */
-function ContactCardView({ c }: { c: SharedContact }) {
+function ContactCardView({ c, sharedBy }: { c: SharedContact; sharedBy?: string }) {
   const url = (w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`);
   return (
     <View style={styles.card}>
@@ -303,8 +442,21 @@ function ContactCardView({ c }: { c: SharedContact }) {
           <Text style={styles.rowTitle} numberOfLines={1} selectable>{c.personName}</Text>
           {!!c.designation && <Text style={styles.rowSub} numberOfLines={2}>{c.designation}</Text>}
         </View>
-        <Text style={styles.saved}>Saved {day(c.savedAt)}</Text>
+        <View style={{ alignItems: 'flex-end', gap: 2 }}>
+          <Text style={styles.saved}>Saved {day(c.savedAt)}</Text>
+          {sharedBy ? <Text style={styles.saved}>by {sharedBy}</Text> : null}
+        </View>
       </View>
+      {c.categories.length > 0 && (
+        <View style={styles.tagRow}>
+          {c.categories.map((x) => (
+            <View key={x.id} style={[styles.tag, { borderColor: x.color }]}>
+              <View style={[styles.chipDot, { backgroundColor: x.color }]} />
+              <Text style={styles.tagText}>{x.name}</Text>
+            </View>
+          ))}
+        </View>
+      )}
       <View style={styles.fields}>
         <Field icon="business-outline" label="Company" values={c.companyName ? [{ text: c.companyName }] : []} />
         <Field
@@ -442,6 +594,17 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, gap: spacing.md },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   saved: { fontSize: 12, color: colors.textSubtle },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipDot: { width: 9, height: 9, borderRadius: 5 },
+  chipText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  chipCount: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: -4 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
+  tagText: { fontSize: 12, fontWeight: '600', color: colors.text },
+  catDot: { width: 14, height: 14, borderRadius: 7, marginHorizontal: 13 },
+  catIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   fields: { gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.md },
   field: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: spacing.md, rowGap: 2 },
   fieldHead: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 150, paddingTop: 1 },

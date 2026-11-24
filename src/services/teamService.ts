@@ -21,6 +21,12 @@ export interface SharedAddress {
   fullAddress: string;
 }
 
+export interface SharedCategory {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface SharedContact {
   id: string;
   ownerId: string;
@@ -32,6 +38,8 @@ export interface SharedContact {
   emails: string[];
   addresses: SharedAddress[];
   events: string[];
+  /** The member's categories on this contact (needs 0008; empty before it). */
+  categories: SharedCategory[];
   savedAt: string;
 }
 
@@ -130,6 +138,28 @@ export async function getSharedContacts(memberIds: string[]): Promise<SharedCont
     })(),
   ]);
 
+  // Categories (allowed by 0008). Before that update the reads return nothing
+  // or an error — then the dashboard simply shows no categories.
+  const categoryLinks: Row[] = [];
+  const categoryInfo = new Map<string, SharedCategory>();
+  try {
+    for (const part of chunks(ids, CHUNK)) {
+      categoryLinks.push(
+        ...(await allPages((from, to) =>
+          sb.from('contact_categories').select('contact_id, category_id').in('contact_id', part).is('deleted_at', null).range(from, to),
+        )),
+      );
+    }
+    const categoryIds = [...new Set(categoryLinks.map((l) => l.category_id as string))];
+    for (const part of chunks(categoryIds, CHUNK)) {
+      const rows = await allPages((from, to) => sb.from('categories').select('id, name, color').in('id', part).range(from, to));
+      for (const c of rows) categoryInfo.set(c.id as string, { id: c.id as string, name: c.name as string, color: (c.color as string) || '#687C58' });
+    }
+  } catch {
+    categoryLinks.length = 0;
+  }
+  const byCategoryLink = groupBy(categoryLinks);
+
   const eventIds = [...new Set(links.map((l) => l.event_id as string))];
   const eventNames = new Map<string, string>();
   for (const part of chunks(eventIds, CHUNK)) {
@@ -163,6 +193,10 @@ export async function getSharedContacts(memberIds: string[]): Promise<SharedCont
       emails: (byEmail.get(id) ?? []).map((e) => e.address as string),
       addresses: (byAddress.get(id) ?? []).map((a) => ({ label: a.label as AddressLabel, fullAddress: a.full_address as string })),
       events: (byLink.get(id) ?? []).map((l) => eventNames.get(l.event_id as string)).filter((n): n is string => !!n),
+      categories: (byCategoryLink.get(id) ?? [])
+        .map((l) => categoryInfo.get(l.category_id as string))
+        .filter((x): x is SharedCategory => !!x)
+        .sort((a, b) => a.name.localeCompare(b.name)),
       savedAt: c.created_at as string,
     };
   });
@@ -178,8 +212,24 @@ function safeCell(value: string): string {
 
 // Same order as the dashboard card: Name, Company, Contact number, Email, Website, Address.
 export const EXPORT_HEADERS = [
-  'Name', 'Company', 'Contact number', 'Email', 'Website', 'Address', 'Designation', 'Met at', 'Saved on', 'Shared by',
+  'Name', 'Company', 'Contact number', 'Email', 'Website', 'Address', 'Category', 'Designation', 'Met at', 'Saved on', 'Shared by',
 ] as const;
+
+export const UNCATEGORISED = 'No category';
+
+/** Shared contacts grouped by category, biggest group first; "No category" last. A contact in two categories appears in both. */
+export function groupByCategory(list: SharedContact[]): { key: string; name: string; color: string | null; contacts: SharedContact[] }[] {
+  const groups = new Map<string, { key: string; name: string; color: string | null; contacts: SharedContact[] }>();
+  for (const c of list) {
+    const cats = c.categories.length ? c.categories : [null];
+    for (const cat of cats) {
+      const key = cat ? cat.name.trim().toLowerCase() : '';
+      if (!groups.has(key)) groups.set(key, { key, name: cat?.name ?? UNCATEGORISED, color: cat?.color ?? null, contacts: [] });
+      groups.get(key)!.contacts.push(c);
+    }
+  }
+  return [...groups.values()].sort((a, b) => (a.key === '' ? 1 : b.key === '' ? -1 : b.contacts.length - a.contacts.length || a.name.localeCompare(b.name)));
+}
 
 /** CSV text with a UTF-8 BOM so Excel shows ₹, é, Hindi names etc. correctly. */
 export function contactsToCsv(contacts: SharedContact[], ownerName: (ownerId: string) => string): string {
@@ -193,6 +243,7 @@ export function contactsToCsv(contacts: SharedContact[], ownerName: (ownerId: st
       c.emails.join('; '),
       c.website ?? '',
       c.addresses.map((a) => (a.label === 'other' ? a.fullAddress : `${ADDRESS_LABEL_TEXT[a.label] ?? 'Address'}: ${a.fullAddress}`)).join(' | '),
+      c.categories.map((x) => x.name).join('; '),
       c.designation ?? '',
       c.events.join('; '),
       c.savedAt ? c.savedAt.slice(0, 10) : '',

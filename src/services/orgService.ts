@@ -29,7 +29,7 @@ export interface MemberStats {
   displayName: string;
   role: OrgRole;
   joinedAt: string;
-  totalContacts: number;
+  /** Only what the member chose to share. How many private contacts they keep is never shown (0008). */
   sharedContacts: number;
 }
 
@@ -184,7 +184,6 @@ export async function getMemberStats(): Promise<MemberStats[]> {
     displayName: r.display_name as string,
     role: r.role as OrgRole,
     joinedAt: r.joined_at as string,
-    totalContacts: Number(r.total_contacts ?? 0),
     sharedContacts: Number(r.shared_contacts ?? 0),
   }));
 }
