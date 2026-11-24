@@ -134,15 +134,15 @@ export default function SettingsScreen() {
       </Section>
 
       {superAdmin && (
-        <Section title="Pockit owner">
+        <Section title="Overview">
           <Pressable
             onPress={() => router.push('/admin' as Href)}
             style={({ pressed }) => [styles.row, { borderBottomWidth: 0 }, pressed && { opacity: 0.7 }]}
             accessibilityRole="button"
           >
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} style={styles.rowIcon} />
+            <Ionicons name="stats-chart-outline" size={20} color={colors.accent} style={styles.rowIcon} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowLabel}>Super Admin dashboard</Text>
+              <Text style={styles.rowLabel}>Dashboard</Text>
               <Text style={styles.rowValue}>Everyone using Pockit, companies and their numbers</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />

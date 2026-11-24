@@ -81,10 +81,11 @@ export default function SuperAdminScreen() {
   if (allowed === null) return <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />;
   if (!allowed) {
     return (
+      // Same as any unknown address: nothing hints that this page exists.
       <EmptyState
-        icon="lock-closed-outline"
-        title="Super Admin only"
-        message="This dashboard is for the owner of Pockit. Your account doesn't have access."
+        icon="help-circle-outline"
+        title="Page not found"
+        message="This page doesn't exist."
         action={<CustomButton title="Go to Home" variant="outline" onPress={() => router.replace('/')} />}
       />
     );
@@ -96,10 +97,6 @@ export default function SuperAdminScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
 
       <View style={styles.hero}>
-        <View style={styles.badge}>
-          <Ionicons name="shield-checkmark" size={14} color={colors.textOnPrimary} />
-          <Text style={styles.badgeText}>SUPER ADMIN</Text>
-        </View>
         <Text style={styles.title}>Pockit at a glance</Text>
         <Text style={styles.subtitle}>
           Everyone using Pockit and how many people they have connected with. Numbers only — no one's contacts are shown here.
@@ -212,7 +209,6 @@ export default function SuperAdminScreen() {
                       <View style={styles.rowMain}>
                         <Text style={styles.rowTitle} numberOfLines={1}>
                           {u.fullName ?? u.email.split('@')[0]}
-                          {u.isSuperAdmin ? '  · Super Admin' : ''}
                         </Text>
                         <Text style={styles.rowSub} numberOfLines={1}>
                           {u.email}

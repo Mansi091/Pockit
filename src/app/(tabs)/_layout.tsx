@@ -128,7 +128,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="admin"
         options={{
-          title: isWide ? 'Dashboard' : 'Super Admin',
+          title: 'Dashboard',
           headerShown: !isWide, // phone: titled screen opened from Settings
           // Only the Pockit owner on the website gets the tab; the screen itself
           // still checks with the database before showing anything.
