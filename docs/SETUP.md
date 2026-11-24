@@ -55,7 +55,27 @@ The app asks users to type a code from the email (works everywhere, no deep link
   <h1>{{ .Token }}</h1>
   ```
 
-Also check **Authentication → Sign In / Providers → Email**: *Confirm email* should be **ON**.
+- **Magic Link** — used by "Sign in with an email code" (passwordless). Replace the body with:
+  ```html
+  <h2>Sign in to Pockit</h2>
+  <p>Your Pockit sign-in code is:</p>
+  <h1>{{ .Token }}</h1>
+  <p>If you didn't try to sign in, you can ignore this email.</p>
+  ```
+
+Also check **Authentication → Sign In / Providers → Email**: *Confirm email* should be **ON**, and *Email OTP length* **6** (the app accepts 6–10).
+
+### Real emails with Gmail SMTP (good for testing and small teams, ~500 emails/day)
+1. Google Account → **Security** → turn on **2-Step Verification**.
+2. Open **https://myaccount.google.com/apppasswords** → create an app password named "Pockit" → copy the 16 characters (spaces don't matter). Never commit it or share it.
+3. Supabase → **Authentication → Emails → SMTP Settings** → **Enable custom SMTP**:
+   - Sender email: your Gmail address · Sender name: `Pockit`
+   - Host: `smtp.gmail.com` · Port: `465`
+   - Username: your Gmail address · Password: the app password
+4. Save, then **Authentication → Rate Limits** → raise "emails sent per hour" (e.g. 30) if testing hits the limit.
+5. Test: Sign up with a new address → the code email should arrive within a minute (check spam the first time).
+
+For launch, move to a provider with your own domain (Resend, Brevo, Amazon SES) so emails come from e.g. `no-reply@pockit.app`.
 
 > **Email limits:** Supabase's built-in email sender only allows a few emails per hour
 > and is meant for testing. Before real users, add your own SMTP provider

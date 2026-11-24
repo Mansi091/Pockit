@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, Switch } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
@@ -352,13 +352,15 @@ You can take a photo and crop it to the card instead.`, [
       </Text>
 
       <View style={styles.actions}>
-        <CustomButton
-          title={contact.nativeContactId ? 'Saved to Phone · Open' : 'Save to Phone Contacts'}
-          icon={contact.nativeContactId ? 'checkmark-circle-outline' : 'person-add-outline'}
-          variant="secondary"
-          onPress={onSaveToPhone}
-          loading={savingToPhone}
-        />
+        {Platform.OS !== 'web' && (
+          <CustomButton
+            title={contact.nativeContactId ? 'Saved to Phone · Open' : 'Save to Phone Contacts'}
+            icon={contact.nativeContactId ? 'checkmark-circle-outline' : 'person-add-outline'}
+            variant="secondary"
+            onPress={onSaveToPhone}
+            loading={savingToPhone}
+          />
+        )}
         <CustomButton
           title="Edit Contact"
           icon="create-outline"

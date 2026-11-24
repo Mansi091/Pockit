@@ -1,6 +1,5 @@
-import { TurboModuleRegistry } from 'react-native';
 import { env, isGoogleConfigured } from '@/config/env';
-import { isExpoGo } from '@/lib/runtime';
+import { hasNativeModule, isExpoGo } from '@/lib/runtime';
 
 /**
  * Native "Continue with Google" via @react-native-google-signin/google-signin.
@@ -16,7 +15,7 @@ let mod: GoogleModule | null | undefined;
 function load(): GoogleModule | null {
   if (mod !== undefined) return mod;
   // Check the native TurboModule exists before requiring the package (see ocrService).
-  if (isExpoGo || !isGoogleConfigured || !TurboModuleRegistry.get('RNGoogleSignin')) return (mod = null);
+  if (isExpoGo || !isGoogleConfigured || !hasNativeModule('RNGoogleSignin')) return (mod = null);
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require('@react-native-google-signin/google-signin') as GoogleModule;

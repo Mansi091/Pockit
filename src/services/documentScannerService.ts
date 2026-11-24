@@ -1,5 +1,5 @@
-import { Image, TurboModuleRegistry } from 'react-native';
-import { isExpoGo } from '@/lib/runtime';
+import { Image } from 'react-native';
+import { hasNativeModule, isExpoGo } from '@/lib/runtime';
 
 /**
  * Automatic card capture using Google ML Kit Document Scanner
@@ -31,7 +31,7 @@ export class ScannerUnavailableError extends Error {
 export function isDocumentScannerAvailable(): boolean {
   // Check the native module BEFORE requiring the package (requiring it without
   // the native side reports a fatal error in development, even inside try/catch).
-  return !isExpoGo && TurboModuleRegistry.get('DocumentScanner') != null;
+  return !isExpoGo && hasNativeModule('DocumentScanner');
 }
 
 const getSize = (uri: string) =>

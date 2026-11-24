@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { getCachedOrganization, type MyOrganization } from '@/services/orgService';
+import { isSuperAdmin } from '@/services/superAdminService';
 import Constants from 'expo-constants';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, spacing, typography } from '@/constants/theme';
 import CustomButton from '@/components/CustomButton';
+import AccountNameRow from '@/components/AccountNameRow';
 import { useAuth } from '@/auth/AuthProvider';
 import { isOcrAvailable } from '@/services/ocrService';
 import { isBackupEnabled, setBackupEnabled, syncNow, useSyncStatus } from '@/services/syncService';
@@ -30,11 +32,13 @@ export default function SettingsScreen() {
   const [counts, setCounts] = useState<{ contacts: number; files: number; bytes: number } | null>(null);
   const userId = session?.user.id ?? '';
   const [org, setOrg] = useState<MyOrganization | null>(null);
+  const [superAdmin, setSuperAdmin] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       isBackupEnabled().then(setBackupOn).catch(() => setBackupOn(false));
       getCachedOrganization().then(setOrg).catch(() => setOrg(null));
+      isSuperAdmin().then(setSuperAdmin);
       getDashboardStats()
         .then((s) => setCounts({ contacts: s.totalContacts, ...storageUsage(userId) }))
         .catch(() => setCounts(null));
@@ -119,6 +123,7 @@ export default function SettingsScreen() {
         <Text style={styles.subtitle}>A space that is yours.</Text>
       </View>
       <Section title="Account">
+        <AccountNameRow />
         <Row icon="person-circle-outline" label="Signed in as" value={session?.user.email ?? '—'} />
         <Row
           icon="key-outline"
@@ -127,6 +132,23 @@ export default function SettingsScreen() {
           last
         />
       </Section>
+
+      {superAdmin && (
+        <Section title="Pockit owner">
+          <Pressable
+            onPress={() => router.push('/admin' as Href)}
+            style={({ pressed }) => [styles.row, { borderBottomWidth: 0 }, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+          >
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} style={styles.rowIcon} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowLabel}>Super Admin dashboard</Text>
+              <Text style={styles.rowValue}>Everyone using Pockit, companies and their numbers</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+          </Pressable>
+        </Section>
+      )}
 
       <Section title="Company">
         <Pressable
@@ -152,7 +174,9 @@ export default function SettingsScreen() {
             <Text style={styles.rowLabel}>Back up contacts & card images</Text>
             <Text style={styles.rowValue}>{backupOn === null ? '…' : syncLabel[sync.state]}</Text>
           </View>
-          {toggling || sync.state === 'syncing' ? (
+          {Platform.OS === 'web' ? (
+            <Text style={styles.rowValue}>Always on</Text>
+          ) : toggling || sync.state === 'syncing' ? (
             <ActivityIndicator color={colors.accent} />
           ) : (
             <Switch

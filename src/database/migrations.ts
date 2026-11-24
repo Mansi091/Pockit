@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { File } from 'expo-file-system';
+import { Platform } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { classifyPhone, splitLegacyList, splitLegacyPhones } from '@/utils/phone';
 
@@ -285,8 +285,13 @@ export function verifyMigrationV2(r: MigrationV2Report): void {
 
 /** Consistent copy of the database file (works in WAL mode). Overwrites an older backup. */
 async function backupDatabase(db: SQLiteDatabase, fromVersion: number): Promise<void> {
+  // Phones only: a browser database has no file to copy (and the web build has no file system).
+  if (Platform.OS === 'web') return;
   const path = `${db.databasePath}.v${fromVersion}.bak`;
   try {
+    // Loaded lazily so the web bundle never pulls in expo-file-system.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { File } = require('expo-file-system') as typeof import('expo-file-system');
     const existing = new File(path.startsWith('file://') ? path : `file://${path}`);
     if (existing.exists) existing.delete();
   } catch {

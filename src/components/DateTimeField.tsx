@@ -1,7 +1,7 @@
-import { Alert, Pressable, StyleSheet, Text, TurboModuleRegistry, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing } from '@/constants/theme';
-import { isExpoGo } from '@/lib/runtime';
+import { hasNativeModule, isExpoGo } from '@/lib/runtime';
 import { dayKey, formatDay, formatTime, parseDayKey } from '@/utils/dates';
 
 /**
@@ -12,7 +12,7 @@ import { dayKey, formatDay, formatTime, parseDayKey } from '@/utils/dates';
 type PickerModule = typeof import('@react-native-community/datetimepicker');
 
 function loadPicker(): PickerModule | null {
-  if (isExpoGo || !TurboModuleRegistry.get('RNCDatePicker')) return null;
+  if (isExpoGo || !hasNativeModule('RNCDatePicker')) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('@react-native-community/datetimepicker') as PickerModule;

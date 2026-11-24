@@ -168,6 +168,11 @@ export interface OcrResult {
   lines: OcrLine[];
   /** Degrees the image was rotated before the best OCR result was obtained. */
   rotation?: number;
+  /**
+   * Fields already identified by the OCR provider (web: Gemini via the scan-card
+   * Edge Function). When present, the rule-based extractor is skipped.
+   */
+  fields?: ExtractedFields;
 }
 
 /** Output of the extraction module: a draft plus fields the user should double-check. */

@@ -99,6 +99,12 @@ export default function SignInScreen() {
       </View>
 
       <CustomButton title="Sign In" onPress={onSubmit} loading={busy === 'email'} disabled={!!busy} />
+      <View style={styles.codeLink}>
+        <TextLink
+          label="Sign in with an email code instead"
+          onPress={() => router.push({ pathname: '/sign-in-code', params: { email: email.trim() } })}
+        />
+      </View>
 
       {isGoogleSignInAvailable() && (
         <>
@@ -124,6 +130,7 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   muted: { color: colors.textMuted, fontSize: 14 },
+  codeLink: { alignItems: 'center', marginTop: spacing.md },
   linksRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -spacing.sm, marginBottom: spacing.lg },
   divider: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginVertical: spacing.lg },
   line: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },

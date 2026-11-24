@@ -9,9 +9,11 @@ import CustomButton from '@/components/CustomButton';
 import FormError from '@/components/FormError';
 import TextLink from '@/components/TextLink';
 import { validateAccountEmail, validateNewPassword } from '@/utils/validation';
+import { MAX_NAME_LENGTH, validateAccountName } from '@/auth/userName';
 
 export default function SignUpScreen() {
   const { signUp } = useAuth();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -20,6 +22,7 @@ export default function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const errors = {
+    name: validateAccountName(name),
     email: validateAccountEmail(email),
     password: validateNewPassword(password),
     confirm: confirm !== password ? 'Passwords do not match.' : null,
@@ -28,10 +31,10 @@ export default function SignUpScreen() {
   const onSubmit = async () => {
     setSubmitted(true);
     setError(null);
-    if (errors.email || errors.password || errors.confirm) return;
+    if (errors.name || errors.email || errors.password || errors.confirm) return;
     setBusy(true);
     try {
-      const { needsVerification } = await signUp(email, password);
+      const { needsVerification } = await signUp(email, password, name);
       if (needsVerification) {
         router.replace({ pathname: '/verify-email', params: { email: email.trim() } });
       }
@@ -55,6 +58,17 @@ export default function SignUpScreen() {
       }
     >
       <FormError message={error} />
+      <InputField
+        label="Your name"
+        value={name}
+        onChangeText={setName}
+        error={submitted ? errors.name : null}
+        autoCapitalize="words"
+        autoComplete="name"
+        textContentType="name"
+        maxLength={MAX_NAME_LENGTH}
+        placeholder="Your full name"
+      />
       <InputField
         label="Email"
         value={email}

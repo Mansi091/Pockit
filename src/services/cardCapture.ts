@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { pickFromGalleryAndCrop, takePhotoAndCrop } from '@/services/cameraService';
 import { isDocumentScannerAvailable, scanCardAutomatically } from '@/services/documentScannerService';
 import { prepareImage } from '@/services/imageService';
@@ -16,11 +17,10 @@ export interface CardImage {
   height: number;
 }
 
-export const CAPTURE_LABEL: Record<CaptureSource, string> = {
-  auto: 'Scan with camera (auto-crop)',
-  camera: 'Take photo & crop myself',
-  gallery: 'Choose from gallery',
-};
+export const CAPTURE_LABEL: Record<CaptureSource, string> =
+  Platform.OS === 'web'
+    ? { auto: 'Scan with camera', camera: 'Scan with webcam', gallery: 'Upload a photo' }
+    : { auto: 'Scan with camera (auto-crop)', camera: 'Take photo & crop myself', gallery: 'Choose from gallery' };
 
 export function captureSources(): CaptureSource[] {
   return isDocumentScannerAvailable() ? ['auto', 'camera', 'gallery'] : ['camera', 'gallery'];

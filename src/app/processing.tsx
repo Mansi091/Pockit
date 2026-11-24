@@ -20,6 +20,8 @@ interface SideResult {
 
 const read = async (img: { uri: string; width: number; height: number }): Promise<SideResult> => {
   const ocr = await recognizeText(img.uri, img);
+  // Web OCR (Gemini) already returns identified fields; phones use our rule-based extractor.
+  if (ocr.fields) return { ocr, extraction: { fields: ocr.fields, lowConfidence: [] } };
   return { ocr, extraction: ocr.text.trim() ? extractContact(ocr) : null };
 };
 

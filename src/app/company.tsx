@@ -10,6 +10,8 @@ import OptionSheet from '@/components/OptionSheet';
 import Avatar from '@/components/Avatar';
 import { sheetStyles } from '@/components/Sheet';
 import { isBackupEnabled, setBackupEnabled } from '@/services/syncService';
+import { useAuth } from '@/auth/AuthProvider';
+import { fullNameOf } from '@/auth/userName';
 import {
   countSharedContacts,
   createInvite,
@@ -43,6 +45,7 @@ export default function CompanyScreen() {
   const [sharedCount, setSharedCount] = useState(0);
   const [backupOn, setBackupOn] = useState(true);
   const [team, setTeam] = useState<MemberStats[] | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
   const [invite, setInvite] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [memberMenu, setMemberMenu] = useState<MemberStats | null>(null);
@@ -51,7 +54,8 @@ export default function CompanyScreen() {
   const [mode, setMode] = useState<Mode>('join');
   const [code, setCode] = useState('');
   const [orgName, setOrgName] = useState('');
-  const [myName, setMyName] = useState('');
+  const { session } = useAuth();
+  const [myName, setMyName] = useState(fullNameOf(session) ?? '');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -68,7 +72,13 @@ export default function CompanyScreen() {
     }
     setOrg(current);
     if (current?.role === 'admin') {
-      getMemberStats().then(setTeam).catch(() => setTeam(null));
+      setTeamError(null);
+      getMemberStats()
+        .then(setTeam)
+        .catch((e) => {
+          setTeam([]);
+          setTeamError(e instanceof Error ? e.message : 'Could not load the team.');
+        });
     } else {
       setTeam(null);
     }
@@ -304,7 +314,12 @@ export default function CompanyScreen() {
 
           <Text style={styles.sectionTitle}>Team</Text>
           <View style={[styles.card, { paddingVertical: 0 }]}>
-            {team === null ? (
+            {teamError ? (
+              <View style={{ paddingVertical: spacing.lg, gap: spacing.sm }}>
+                <Text style={styles.rowSub}>{teamError}</Text>
+                <CustomButton title="Try again" variant="outline" onPress={load} />
+              </View>
+            ) : team === null ? (
               <ActivityIndicator color={colors.primary} style={{ margin: spacing.lg }} />
             ) : (
               team.map((m, i) => (

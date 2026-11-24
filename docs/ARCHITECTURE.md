@@ -135,3 +135,32 @@ Contacts search matches name, company, designation, website, address, every emai
 - **Sync safety:** pulls are filtered to `user_id = me`, so an admin's phone never downloads other people's shared contacts into their own address book.
 - **Sharing needs cloud backup on**; the Company page warns about this.
 - **Next:** a web dashboard (Next.js + the same Supabase) for admins (overview, team, shared contacts, Excel export), plus Excel export in the app (needs `expo-sharing`, i.e. one new native build).
+
+## Web app (same codebase)
+
+The website is the SAME Expo Router app built for the browser (`npx expo start --web`, `npx expo export --platform web` → `dist/`). Same screens, same login, same data. Phone-only pieces have `*.web.ts(x)` versions that Metro picks automatically in the browser:
+
+| Area | Phone | Web (`*.web.*` file) |
+|---|---|---|
+| Session storage | SecureStore (chunked) | `lib/secureStorage.web.ts` → localStorage |
+| Database | expo-sqlite (file) | expo-sqlite web (wa-sqlite in a worker, OPFS). Needs `.wasm` in `metro.config.js` and cross-origin-isolation headers (dev: `metro.config.js`; hosting: `vercel.json`) |
+| Card images | files in app storage | `services/imageService.web.ts` → JPEG data URLs in the row; canvas resize/rotate |
+| Image sync | expo-file-system | `sync/supabaseRemoteStore.web.ts` (Blob upload, data-URL download) |
+| OCR | ML Kit on-device | `services/ocrService.web.ts` → Edge Function `scan-card` → Google Gemini (key only in Supabase secrets); returns lines + fields, so the rule-based extractor is skipped |
+| Dates | Android dialogs | `components/DateTimeField.web.tsx` → `<input type="date|time">` |
+| Confirmations | Alert | `lib/webAlert.ts` maps Alert.alert to confirm/alert |
+| Cloud backup | opt-in | always on (`isBackupEnabled()` returns true): the web sees phone data only through the cloud |
+| Save to phone contacts | yes | hidden |
+
+Edge Function `supabase/functions/scan-card` (Deno): checks the caller is a signed-in user, then calls Gemini `generateContent` with a JSON schema. Secrets: `GEMINI_API_KEY` (required), `GEMINI_MODEL` (optional; default = newest stable `gemini-<v>-flash` the key can use). Privacy: on the web, card images go to Supabase → Google; the phone app stays on-device.
+
+## Web card scanner
+
+`components/WebCardScanner.tsx` (mounted once in the root layout, web only; opened through `services/webcam.ts`):
+- **Camera stage:** `getUserMedia` webcam → every 250 ms a 640-px frame goes to a **Web Worker** running **OpenCV.js 4.10** (`services/cardDetectWorker.ts`, loaded from docs.opencv.org, ~10 MB, cached). Detection = grayscale → blur → Canny edges + Otsu brightness → contours → convex 4-corner shape, preferring card proportions (1.25–2.3). Green outline on the video; steady for ~1 s → auto-capture (toggle).
+- **Crop stage:** full-resolution frame (or an uploaded photo, auto-detected first) with 4 draggable corners → `cropCard()` straightens it with our own homography + bilinear warp (`utils/perspective.ts`, unit tested). Works without OpenCV (manual corners).
+- Running OpenCV in a worker is required: loading it on the main thread froze the tab.
+
+## Platform super admin (0006)
+
+`platform_admins` table (rows added only in the SQL editor) + SECURITY DEFINER functions `admin_overview`, `admin_monthly_growth`, `admin_companies`, `admin_users`, each refusing non-super-admins. Screen `src/app/admin.tsx` (Overview · Companies · People), linked from the web sidebar / Settings only for super admins. Numbers only: no contact details, notes or follow-ups of any user.

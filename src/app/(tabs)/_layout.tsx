@@ -6,6 +6,8 @@ import { colors } from '@/constants/theme';
 import { useContactsVersion } from '@/services/dataEvents';
 import { refreshNotifications } from '@/services/activityService';
 import { initNotifications, onNotificationTap } from '@/services/notificationService';
+import WebSidebar from '@/components/WebSidebar';
+import { CONTENT_MAX, SIDEBAR_WIDTH, useWebLayout } from '@/hooks/useWebLayout';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const icon =
@@ -21,6 +23,9 @@ const icon =
  */
 export default function TabLayout() {
   const version = useContactsVersion();
+  // Desktop website: left sidebar + centred content; phones keep the bottom bar.
+  const { isWide, width, gutter } = useWebLayout();
+  const sidePad = gutter(width - SIDEBAR_WIDTH, CONTENT_MAX);
 
   // Follow-up notifications: set up once, open the contact when one is tapped…
   useEffect(() => {
@@ -38,7 +43,9 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      tabBar={isWide ? (props) => <WebSidebar {...props} /> : undefined}
       screenOptions={{
+        tabBarPosition: isWide ? 'left' : 'bottom',
             tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSubtle,
             tabBarStyle: {
@@ -50,12 +57,14 @@ export default function TabLayout() {
               paddingTop: 6,
             },
             tabBarLabelStyle: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, fontWeight: '600' },
-        headerStyle: { backgroundColor: colors.background },
         headerShadowVisible: false,
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: '700', fontSize: 22 },
         headerTitleAlign: 'left',
-        sceneStyle: { backgroundColor: colors.background },
+        sceneStyle: { backgroundColor: colors.background, paddingHorizontal: sidePad },
+        headerStyle: isWide
+          ? { backgroundColor: colors.background, paddingHorizontal: sidePad }
+          : { backgroundColor: colors.background },
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home', headerShown: false, tabBarIcon: icon('home', 'home-outline') }} />

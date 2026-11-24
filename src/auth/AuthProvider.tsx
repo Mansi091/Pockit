@@ -5,6 +5,7 @@ import { closeUserDatabase, deleteUserDatabase, openUserDatabase } from '@/datab
 import { deleteAllUserImages } from '@/services/imageService';
 import { initSync, resetSyncStatus } from '@/services/syncService';
 import { cancelAllFollowUpNotifications } from '@/services/notificationService';
+import { normaliseName } from '@/auth/userName';
 import { emitContactsChanged } from '@/services/dataEvents';
 import { getGoogleIdToken, googleSignOut } from '@/auth/googleAuth';
 
@@ -25,10 +26,15 @@ interface AuthContextValue {
   /** True after a recovery code was verified, until a new password is set. */
   mustSetPassword: boolean;
   signIn(email: string, password: string): Promise<void>;
-  signUp(email: string, password: string): Promise<{ needsVerification: boolean }>;
+  signUp(email: string, password: string, fullName: string): Promise<{ needsVerification: boolean }>;
+  /** Sets the account holder's name (shown in greetings, the sidebar and to their company). */
+  updateName(fullName: string): Promise<void>;
   verifySignUpCode(email: string, code: string): Promise<void>;
   resendSignUpCode(email: string): Promise<void>;
   sendPasswordReset(email: string): Promise<void>;
+  /** Passwordless sign-in: emails a one-time code to an EXISTING account. */
+  sendLoginCode(email: string): Promise<void>;
+  verifyLoginCode(email: string, code: string): Promise<void>;
   verifyRecoveryCode(email: string, code: string): Promise<void>;
   setNewPassword(password: string): Promise<void>;
   signInWithGoogle(): Promise<void>;
@@ -109,8 +115,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw friendly(error);
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const { data, error } = await requireSupabase().auth.signUp({ email: email.trim(), password });
+  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+    const { data, error } = await requireSupabase().auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: normaliseName(fullName) } },
+    });
     if (error) throw friendly(error);
     // With "Confirm email" enabled (recommended) there is no session until the code is verified.
     // Supabase returns a user with no identities when the email is already registered.
@@ -120,6 +130,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { needsVerification: !data.session };
   }, []);
 
+  const updateName = useCallback(async (fullName: string) => {
+    const { error } = await requireSupabase().auth.updateUser({ data: { full_name: normaliseName(fullName) } });
+    if (error) throw friendly(error);
+    // The session refreshes itself (USER_UPDATED), so every screen shows the new name.
+  }, []);
+
   const verifySignUpCode = useCallback(async (email: string, code: string) => {
     const { error } = await requireSupabase().auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     if (error) throw friendly(error);
@@ -127,6 +143,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendSignUpCode = useCallback(async (email: string) => {
     const { error } = await requireSupabase().auth.resend({ type: 'signup', email: email.trim() });
+    if (error) throw friendly(error);
+  }, []);
+
+  const sendLoginCode = useCallback(async (email: string) => {
+    // shouldCreateUser: false → only registered emails get a code (no surprise sign-ups).
+    const { error } = await requireSupabase().auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false } });
+    if (error) {
+      if (/signups? not allowed|user not found/i.test(error.message)) {
+        throw new Error('No Pockit account uses this email. Create an account first.');
+      }
+      throw friendly(error);
+    }
+  }, []);
+
+  const verifyLoginCode = useCallback(async (email: string, code: string) => {
+    const { error } = await requireSupabase().auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     if (error) throw friendly(error);
   }, []);
 
@@ -197,17 +229,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mustSetPassword,
       signIn,
       signUp,
+      updateName,
       verifySignUpCode,
       resendSignUpCode,
       sendPasswordReset,
+      sendLoginCode,
+      verifyLoginCode,
       verifyRecoveryCode,
       setNewPassword,
       signInWithGoogle,
       signOut,
       deleteAccount,
     }),
-    [session, ready, openedFor, mustSetPassword, signIn, signUp, verifySignUpCode, resendSignUpCode,
-      sendPasswordReset, verifyRecoveryCode, setNewPassword, signInWithGoogle, signOut, deleteAccount],
+    [session, ready, openedFor, mustSetPassword, signIn, signUp, updateName, verifySignUpCode, resendSignUpCode,
+      sendPasswordReset, sendLoginCode, verifyLoginCode, verifyRecoveryCode, setNewPassword, signInWithGoogle, signOut, deleteAccount],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -17,7 +17,8 @@ type NotificationsModule = typeof import('expo-notifications');
 let cached: NotificationsModule | null | undefined;
 function load(): NotificationsModule | null {
   if (cached !== undefined) return cached;
-  if (isExpoGo || !requireOptionalNativeModule('ExpoNotificationScheduler')) {
+  // Web: no local scheduled notifications (follow-ups still show in Planner).
+  if (Platform.OS === 'web' || isExpoGo || !requireOptionalNativeModule('ExpoNotificationScheduler')) {
     cached = null;
     return cached;
   }

@@ -1,6 +1,10 @@
 const mockScan = jest.fn();
 jest.mock('react-native-document-scanner-plugin', () => ({ __esModule: true, default: { scanDocument: (...a: unknown[]) => mockScan(...a) } }));
-jest.mock('@/lib/runtime', () => ({ isExpoGo: false }));
+jest.mock('@/lib/runtime', () => ({
+  isExpoGo: false,
+  // Same check as the real helper, driven by the TurboModuleRegistry spy below.
+  hasNativeModule: (name: string) => require('react-native').TurboModuleRegistry.get(name) != null,
+}));
 
 import { Image, TurboModuleRegistry } from 'react-native';
 import { isDocumentScannerAvailable, scanCardAutomatically, scanCardsAutomatically, ScannerUnavailableError } from '@/services/documentScannerService';

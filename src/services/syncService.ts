@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Network from 'expo-network';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUserId } from '@/database/db';
@@ -45,6 +46,8 @@ export function useSyncStatus(): SyncStatus {
 const pendingCount = () => countPending(SYNC_TABLES);
 
 export async function isBackupEnabled(): Promise<boolean> {
+  // The web app shows the same data as the phone only through the cloud, so it is always on there.
+  if (Platform.OS === 'web') return true;
   return (await getMeta(META.backupEnabled)) === '1';
 }
 

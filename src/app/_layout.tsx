@@ -1,4 +1,5 @@
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import '@/lib/webAlert'; // web only: makes Alert.alert confirmations work in the browser
+import { ActivityIndicator, StyleSheet, Text, View, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -6,6 +7,9 @@ import { useFonts, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, M
 import { colors, spacing } from '@/constants/theme';
 import { isSupabaseConfigured } from '@/config/env';
 import { AuthProvider, useAuth } from '@/auth/AuthProvider';
+import { FORM_MAX, useWebLayout } from '@/hooks/useWebLayout';
+import WebCardScanner from '@/components/WebCardScanner';
+import WebDialogHost from '@/components/WebDialogHost';
 
 /**
  * Root navigator with route protection (Expo Router `Stack.Protected`):
@@ -23,8 +27,14 @@ export default function RootLayout() {
   );
 }
 
+/** Screens that manage their own desktop layout (sidebar / sign-in panel). */
+const FULL_WIDTH = { backgroundColor: colors.background };
+
 function RootNavigator() {
   const { session, ready, mustSetPassword } = useAuth();
+  // Desktop website: detail screens (contact, scan, review, settings…) stay at a readable width.
+  const { width, gutter } = useWebLayout();
+  const sidePad = gutter(width, FORM_MAX);
   const [fontsLoaded] = useFonts({
     Manrope_400Regular,
     Manrope_500Medium,
@@ -45,6 +55,8 @@ function RootNavigator() {
   const signedIn = !!session;
   return (
     <>
+      {Platform.OS === 'web' && <WebCardScanner />}
+      {Platform.OS === 'web' && <WebDialogHost />}
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -52,11 +64,11 @@ function RootNavigator() {
           headerShadowVisible: false,
           headerTintColor: colors.text,
           headerTitleStyle: { fontWeight: '600', fontSize: 17 },
-          contentStyle: { backgroundColor: colors.background },
+          contentStyle: { backgroundColor: colors.background, paddingHorizontal: sidePad },
         }}
       >
         <Stack.Protected guard={signedIn && !mustSetPassword}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, contentStyle: FULL_WIDTH }} />
           <Stack.Screen name="scan" options={{ title: 'Scan Business Card' }} />
           <Stack.Screen name="processing" options={{ title: 'Processing', headerBackVisible: false, gestureEnabled: false }} />
           <Stack.Screen name="review-contact" options={{ title: 'Review Contact' }} />
@@ -64,14 +76,15 @@ function RootNavigator() {
           <Stack.Screen name="event/[id]" options={{ title: 'Event' }} />
           <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           <Stack.Screen name="company" options={{ title: 'Company' }} />
+          <Stack.Screen name="admin" options={{ title: 'Super Admin' }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!signedIn}>
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          <Stack.Screen name="(auth)" options={{ headerShown: false, contentStyle: FULL_WIDTH }} />
         </Stack.Protected>
 
         <Stack.Protected guard={signedIn && mustSetPassword}>
-          <Stack.Screen name="new-password" options={{ headerShown: false }} />
+          <Stack.Screen name="new-password" options={{ headerShown: false, contentStyle: FULL_WIDTH }} />
         </Stack.Protected>
       </Stack>
     </>

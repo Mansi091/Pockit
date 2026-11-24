@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '@/constants/theme';
@@ -243,7 +243,11 @@ export default function ScanScreen() {
       {!autoAvailable && (
         <FormError
           tone="info"
-          message="Automatic card detection needs the Pockit app build (not Expo Go). Until then, drag the crop box to the card's edges."
+          message={
+            Platform.OS === 'web'
+              ? 'Use your webcam or upload a photo of the card. Pockit reads it for you. On the website, the image is sent securely to our server to be read.'
+              : "Automatic card detection needs the Pockit app build (not Expo Go). Until then, drag the crop box to the card's edges."
+          }
         />
       )}
 
@@ -263,9 +267,9 @@ export default function ScanScreen() {
             <CustomButton title="Take photo & crop myself" icon="crop" variant="outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy || batchBusy} />
           </>
         ) : (
-          <CustomButton title="Take photo" icon="camera-outline" onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
+          <CustomButton title={Platform.OS === 'web' ? 'Scan with webcam' : 'Take photo'} icon={Platform.OS === 'web' ? 'videocam-outline' : 'camera-outline'} onPress={() => run('front', 'camera')} loading={busy === 'front:camera'} disabled={!!busy} />
         )}
-        <CustomButton title="Choose from gallery" icon="images-outline" variant="outline" onPress={() => run('front', 'gallery')} loading={busy === 'front:gallery'} disabled={!!busy} />
+        <CustomButton title={Platform.OS === 'web' ? 'Upload a photo' : 'Choose from gallery'} icon={Platform.OS === 'web' ? 'cloud-upload-outline' : 'images-outline'} variant="outline" onPress={() => run('front', 'gallery')} loading={busy === 'front:gallery'} disabled={!!busy} />
         <CustomButton
           title="Enter details manually"
           icon="create-outline"

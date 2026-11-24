@@ -1,5 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Image, NativeModules, StyleSheet, TurboModuleRegistry, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { hasNativeModule } from '@/lib/runtime';
 import { captureRef } from 'react-native-view-shot';
 
 /**
@@ -17,8 +18,7 @@ export interface CardPhotoComposerHandle {
 
 const SIZE = 720; // Android's contact display photo size
 
-export const isComposerAvailable = () =>
-  TurboModuleRegistry.get('RNViewShot') != null || NativeModules.RNViewShot != null;
+export const isComposerAvailable = () => hasNativeModule('RNViewShot');
 
 const CardPhotoComposer = forwardRef<CardPhotoComposerHandle>(function CardPhotoComposer(_props, ref) {
   const viewRef = useRef<React.ComponentRef<typeof View>>(null);
