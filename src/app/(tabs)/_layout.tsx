@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Tabs, usePathname, type Href } from 'expo-router';
 import { isSuperAdmin } from '@/services/superAdminService';
 import { getCachedOrganization, refreshMyOrganization } from '@/services/orgService';
@@ -14,6 +15,9 @@ import { CONTENT_MAX, SIDEBAR_WIDTH, useWebLayout } from '@/web/hooks/useWebLayo
 // Home stays the starting tab for everyone, even though "admin" is declared first
 // (so it sits at the top of the Super Admin's sidebar).
 export const unstable_settings = { initialRouteName: 'index' };
+
+/** Bottom bar content height (icon + label), not counting the phone's system area. */
+const TAB_BAR_HEIGHT = 64;
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const icon =
@@ -36,6 +40,8 @@ export default function TabLayout() {
   // Desktop website: left sidebar + centred content; phones keep the bottom bar.
   const { isWide, width, gutter } = useWebLayout();
   const sidePad = gutter(width - SIDEBAR_WIDTH, CONTENT_MAX);
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 0);
   const pathname = usePathname();
   const [roles, setRoles] = useState<{ superAdmin: boolean; companyAdmin: boolean } | null>(null);
   const superAdmin = !!roles?.superAdmin;
@@ -93,15 +99,22 @@ export default function TabLayout() {
         tabBarPosition: isWide ? 'left' : 'bottom',
             tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSubtle,
+            // Explicit height: room for icon + label, PLUS the phone's own system
+            // area (Android navigation buttons / gesture bar, iPhone home bar).
+            // Android draws apps edge-to-edge, so without this the bar slid
+            // underneath the system buttons and the labels were cut off.
             tabBarStyle: {
               backgroundColor: colors.surface,
               borderTopWidth: 1,
               borderTopColor: colors.border,
               elevation: 0,
               shadowOpacity: 0,
+              height: TAB_BAR_HEIGHT + bottomInset,
               paddingTop: 6,
+              paddingBottom: bottomInset + 6,
             },
-            tabBarLabelStyle: { fontFamily: 'Manrope_600SemiBold', fontSize: 9, fontWeight: '600' },
+            tabBarItemStyle: { height: TAB_BAR_HEIGHT - 12 },
+            tabBarLabelStyle: { fontFamily: 'Manrope_600SemiBold', fontSize: 11, fontWeight: '600', marginTop: 2 },
         headerShadowVisible: false,
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: '700', fontSize: 22 },

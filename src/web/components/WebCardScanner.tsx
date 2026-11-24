@@ -1,5 +1,5 @@
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing } from '@/constants/theme';
 import { registerWebcamHost, type ScannerRequest, type WebcamShot } from '@/web/scanner/webcam';
@@ -23,6 +23,11 @@ const STEADY_SHIFT = 0.025; // corners moving less than 2.5% of the frame…
 const STEADY_TICKS = 4; // …for 4 detections in a row (~1 s) → auto-capture
 
 export default function WebCardScanner() {
+  // Phones / narrow windows: full-screen scanner with the main button always in view.
+  const { width: winW, height: winH } = useWindowDimensions();
+  const compact = winW < 700;
+  // header ≈ 70, note ≈ 50, chips + button ≈ 140, padding ≈ 30
+  const cropImageMax = Math.max(160, winH - 290);
   const [visible, setVisible] = useState(false);
   const [stage, setStage] = useState<Stage>('camera');
 
@@ -313,8 +318,8 @@ export default function WebCardScanner() {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => finish(null)}>
-      <View style={styles.backdrop}>
-        <View style={styles.panel}>
+      <View style={[styles.backdrop, compact && { padding: 0 }]}>
+        <View style={[styles.panel, compact && { maxWidth: undefined, height: winH, borderRadius: 0 }]}>
           <View style={styles.header}>
             <Text style={styles.title}>{stage === 'camera' ? 'Scan a card' : 'Adjust the corners'}</Text>
             <Pressable onPress={() => finish(null)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Close scanner">
@@ -324,7 +329,7 @@ export default function WebCardScanner() {
 
           {stage === 'camera' ? (
             <>
-              <View style={styles.stage}>
+              <View style={[styles.stage, compact && { aspectRatio: undefined, flex: 1 }]}>
                 {createElement('video', {
                   ref: videoRef,
                   autoPlay: true,
@@ -389,7 +394,7 @@ export default function WebCardScanner() {
             </>
           ) : (
             <>
-              <View style={styles.cropStage}>
+              <View style={[styles.cropStage, compact && { flex: 1, minHeight: 0, padding: spacing.sm }]}>
                 {photo &&
                   createElement(
                     'div',
@@ -400,7 +405,8 @@ export default function WebCardScanner() {
                       alt: 'Card photo',
                       draggable: false,
                       onLoad: () => cvState === 'ready' && !autoFound && runDetectOnPhoto(),
-                      style: { display: 'block', maxWidth: '100%', maxHeight: '62vh' },
+                      // Phone: whatever height is left after the header, note and buttons.
+                      style: { display: 'block', maxWidth: '100%', maxHeight: compact ? `${cropImageMax}px` : '62vh' },
                     }),
                     overlay(quad, { color: '#4ADE80', shade: true }),
                     ...quad.map((p, i) =>
@@ -441,33 +447,61 @@ export default function WebCardScanner() {
                     ? 'Finding the card… you can also drag the 4 corners yourself.'
                     : 'Drag the 4 corners onto the card’s edges.'}
               </Text>
-              <View style={styles.cropActions}>
-                <Pressable
-                  onPress={rescan}
-                  disabled={busy}
-                  style={[styles.ghostBtn, styles.rescanBtn]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Rescan: take the photo again"
-                >
-                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.ghostText}>Rescan</Text>
-                </Pressable>
-                <Pressable onPress={() => setQuad(DEFAULT_QUAD)} style={styles.ghostBtn} accessibilityRole="button">
-                  <Text style={styles.ghostText}>Reset corners</Text>
-                </Pressable>
-                {cvState === 'ready' && (
-                  <Pressable onPress={runDetectOnPhoto} style={styles.ghostBtn} accessibilityRole="button">
-                    <Text style={styles.ghostText}>Detect again</Text>
+              {compact ? (
+                // Phone: the way forward is always a big button at the bottom; the
+                // other choices sit above it as small chips.
+                <View style={styles.cropActionsCompact}>
+                  <View style={styles.chipRow}>
+                    <Pressable onPress={rescan} disabled={busy} style={styles.chip} accessibilityRole="button" accessibilityLabel="Rescan: take the photo again">
+                      <Ionicons name="camera-outline" size={15} color="#FFFFFF" />
+                      <Text style={styles.chipText}>Rescan</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setQuad(DEFAULT_QUAD)} style={styles.chip} accessibilityRole="button">
+                      <Text style={styles.chipText}>Reset</Text>
+                    </Pressable>
+                    {cvState === 'ready' && (
+                      <Pressable onPress={runDetectOnPhoto} style={styles.chip} accessibilityRole="button">
+                        <Text style={styles.chipText}>Detect</Text>
+                      </Pressable>
+                    )}
+                    <Pressable onPress={useWhole} style={styles.chip} accessibilityRole="button">
+                      <Text style={styles.chipText}>Whole photo</Text>
+                    </Pressable>
+                  </View>
+                  <Pressable onPress={useCrop} disabled={busy} style={[styles.primaryBtn, styles.primaryFull]} accessibilityRole="button">
+                    <Ionicons name="crop" size={18} color={colors.primary} />
+                    <Text style={styles.primaryText}>Crop & continue</Text>
                   </Pressable>
-                )}
-                <Pressable onPress={useWhole} style={styles.ghostBtn} accessibilityRole="button">
-                  <Text style={styles.ghostText}>Use whole photo</Text>
-                </Pressable>
-                <Pressable onPress={useCrop} disabled={busy} style={styles.primaryBtn} accessibilityRole="button">
-                  <Ionicons name="crop" size={18} color={colors.primary} />
-                  <Text style={styles.primaryText}>Crop & use</Text>
-                </Pressable>
-              </View>
+                </View>
+              ) : (
+                <View style={styles.cropActions}>
+                  <Pressable
+                    onPress={rescan}
+                    disabled={busy}
+                    style={[styles.ghostBtn, styles.rescanBtn]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Rescan: take the photo again"
+                  >
+                    <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.ghostText}>Rescan</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setQuad(DEFAULT_QUAD)} style={styles.ghostBtn} accessibilityRole="button">
+                    <Text style={styles.ghostText}>Reset corners</Text>
+                  </Pressable>
+                  {cvState === 'ready' && (
+                    <Pressable onPress={runDetectOnPhoto} style={styles.ghostBtn} accessibilityRole="button">
+                      <Text style={styles.ghostText}>Detect again</Text>
+                    </Pressable>
+                  )}
+                  <Pressable onPress={useWhole} style={styles.ghostBtn} accessibilityRole="button">
+                    <Text style={styles.ghostText}>Use whole photo</Text>
+                  </Pressable>
+                  <Pressable onPress={useCrop} disabled={busy} style={styles.primaryBtn} accessibilityRole="button">
+                    <Ionicons name="crop" size={18} color={colors.primary} />
+                    <Text style={styles.primaryText}>Crop & use</Text>
+                  </Pressable>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -500,4 +534,10 @@ const styles = StyleSheet.create({
   rescanBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 'auto' },
   primaryBtn: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.lg, borderRadius: radius.md, backgroundColor: '#FFFFFF' },
   primaryText: { color: colors.primary, fontSize: 15, fontWeight: '700' },
+  // phone layout
+  cropActionsCompact: { gap: spacing.sm, padding: spacing.md, paddingBottom: spacing.lg },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 36, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.12)' },
+  chipText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  primaryFull: { justifyContent: 'center', minHeight: 52 },
 });
