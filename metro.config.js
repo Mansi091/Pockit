@@ -25,10 +25,24 @@ const WEB_DIR = path.join(SRC, 'web');
 const OVERRIDES = path.join(WEB_DIR, 'overrides');
 const overrideCache = new Map();
 
+// Windows paths are case-insensitive and Metro may report the drive as `d:` or `D:`
+// depending on where the server was started, so compare normalised paths.
+const norm = (p) => {
+  const n = path.resolve(p);
+  return process.platform === 'win32' ? n.toLowerCase() : n;
+};
+const SRC_N = norm(SRC) + path.sep;
+const WEB_DIR_N = norm(WEB_DIR) + path.sep;
+
 function webOverrideFor(filePath) {
-  if (!filePath.startsWith(SRC + path.sep) || filePath.startsWith(WEB_DIR + path.sep)) return null;
+  const f = norm(filePath);
+  if (!f.startsWith(SRC_N) || f.startsWith(WEB_DIR_N)) return null;
   if (!overrideCache.has(filePath)) {
-    const candidate = path.join(OVERRIDES, path.relative(SRC, filePath));
+    // Build the override path from Metro's own spelling of `src\` (same drive-letter
+    // casing as the rest of its file map); only the comparison ignores case.
+    const original = path.resolve(filePath);
+    const srcAsMetroSpellsIt = original.slice(0, SRC_N.length);
+    const candidate = path.join(srcAsMetroSpellsIt, 'web', 'overrides', original.slice(SRC_N.length));
     overrideCache.set(filePath, fs.existsSync(candidate) ? candidate : null);
   }
   return overrideCache.get(filePath);
