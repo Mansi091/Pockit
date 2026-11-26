@@ -57,6 +57,17 @@ export async function captureMany(from: BatchSource, max = 20): Promise<CardImag
     if (!result.canceled) picked = (result.assets ?? []).map((a) => ({ uri: a.uri, width: a.width, height: a.height }));
   }
   const out: CardImage[] = [];
-  for (const p of picked.slice(0, max)) out.push(await prepareImage(p.uri, { width: p.width, height: p.height }));
+  const selected = picked.slice(0, max);
+  try {
+    for (const p of selected) {
+      out.push(await prepareImage(p.uri, { width: p.width, height: p.height }));
+    }
+  } finally {
+    // The web image picker hands back temporary blob URLs. Normalized images
+    // are self-contained data URLs, so release originals even if one fails.
+    if (Platform.OS === 'web') {
+      for (const p of picked) if (p.uri.startsWith('blob:')) URL.revokeObjectURL(p.uri);
+    }
+  }
   return out;
 }

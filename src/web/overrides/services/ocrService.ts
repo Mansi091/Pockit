@@ -1,19 +1,9 @@
 import { requireSupabase } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/config/env';
 import type { ExtractedFields, OcrResult } from '@/types/contact';
-import { prepareImage } from '@/web/overrides/services/imageService';
+import { ImagePreparationError, prepareImage } from '@/web/overrides/services/imageService';
 
-/**
- * Web version of ocrService.ts (same exports).
- *
- * ML Kit only exists on phones, so the web app sends the card image to OUR
- * Supabase Edge Function `scan-card` (supabase/functions/scan-card), which asks
- * Google Gemini to read it. The Gemini API key lives only in Supabase's
- * secrets — never in this browser code. Only signed-in users can call it.
- *
- * Privacy: on the web, card images leave the device (to Supabase → Google).
- * The phone app still reads cards on-device.
- */
+/** Web OCR uses Gemini through our authenticated Supabase Edge Function. */
 export class OcrUnavailableError extends Error {
   constructor(message = 'Card reading is not set up on the server yet (scan-card function). You can enter the details manually.') {
     super(message);
@@ -27,67 +17,101 @@ interface ScanCardResponse {
   lines?: string[];
   fields?: Partial<ExtractedFields>;
   error?: string;
+  code?: string;
 }
 
+const MAX_BASE64_LENGTH = 5_500_000;
 const clean = (v: unknown): string | null => {
   const s = typeof v === 'string' ? v.trim() : '';
-  return s ? s : null;
+  return s || null;
 };
 
-/**
- * Every image is re-drawn as a JPEG of at most 2000 px before it is sent.
- * iPhones hand the browser 12-megapixel and/or HEIC photos; the server accepts
- * only JPG/PNG/WebP up to ~4.5 MB, and 2000 px is plenty to read a card.
- */
+/** Normalize blob:, data:, and browser file URLs to bounded JPEG before network use. */
 async function asSendableJpeg(imageUri: string): Promise<string> {
-  try {
-    return (await prepareImage(imageUri, { maxDimension: 2000, compress: 0.88 })).uri;
-  } catch {
-    return imageUri; // the browser couldn't decode it; let the checks below explain
+  const prepared = await prepareImage(imageUri, {
+    maxDimension: 2000,
+    compress: 0.88,
+    maxBase64Length: MAX_BASE64_LENGTH,
+  });
+  if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/i.test(prepared.uri)) {
+    throw new ImagePreparationError('jpeg', 'The photo could not be converted to JPEG. Please export it as JPEG and try again.');
   }
+  return prepared.uri;
 }
 
 export async function recognizeText(imageUri: string): Promise<OcrResult> {
-  const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(await asSendableJpeg(imageUri));
-  if (!match) throw new Error('Unsupported image. Please pick a JPG or PNG photo.');
-  const [, mimeType, base64] = match;
-  if (base64!.length > 6_000_000) throw new Error('This image is too large. Try a smaller photo.');
+  let jpegDataUrl: string;
+  try {
+    jpegDataUrl = await asSendableJpeg(imageUri);
+  } catch (error) {
+    if (error instanceof ImagePreparationError) {
+      // Log only stage and URI scheme. Never log the URI, image, or card contents.
+      console.warn('[Pockit OCR] image preparation failed', {
+        stage: error.stage,
+        source: imageUri?.startsWith('blob:') ? 'blob' : imageUri?.startsWith('data:') ? 'data' : 'url',
+      });
+      throw error;
+    }
+    console.warn('[Pockit OCR] image preparation failed', { stage: 'unknown' });
+    throw new ImagePreparationError('loading', 'Could not prepare this photo. Please choose it again or export it as JPEG.');
+  }
 
-  const { data, error } = await requireSupabase().functions.invoke<ScanCardResponse>('scan-card', {
-    body: { image: base64, mimeType },
-  });
+  const match = /^data:(image\/jpeg);base64,([A-Za-z0-9+/]+=*)$/i.exec(jpegDataUrl);
+  if (!match) throw new ImagePreparationError('jpeg', 'The photo was not converted to a valid JPEG. Please choose another image.');
+  const [, mimeType, base64] = match;
+  if (base64!.length > MAX_BASE64_LENGTH) {
+    throw new ImagePreparationError('jpeg', 'This photo is too large to send. Crop closer to the card and try again.');
+  }
+
+  let data: ScanCardResponse | null;
+  let error: { context?: { status?: number; json?: () => Promise<unknown> }; message?: string } | null;
+  try {
+    ({ data, error } = await requireSupabase().functions.invoke<ScanCardResponse>('scan-card', {
+      body: { image: base64, mimeType },
+    }));
+  } catch {
+    console.warn('[Pockit OCR] Edge Function invocation failed', { stage: 'network' });
+    throw new Error('Could not contact the card-reading service. Check your connection and try again.');
+  }
 
   if (error) {
-    // 404 → function not deployed; 500 with a config message → secret missing.
-    const status = (error as { context?: { status?: number } }).context?.status;
+    const status = error.context?.status;
+    console.warn('[Pockit OCR] Edge Function returned an error', { status: status ?? 'unknown' });
     if (status === 404) throw new OcrUnavailableError();
+    if (status === 401 || status === 403) throw new Error('Your sign-in may have expired. Sign in again, then retry the scan.');
+    if (status === 413) throw new Error('This photo is too large for the card-reading service. Crop closer to the card and retry.');
+
     let detail = '';
     try {
-      const body = await (error as { context?: Response }).context?.json?.();
-      detail = body?.error ?? '';
+      const body = await error.context?.json?.();
+      detail = (body as { error?: string } | null)?.error ?? '';
     } catch {
-      // no JSON body
+      // No JSON error body.
     }
     if (/not configured/i.test(detail)) throw new OcrUnavailableError(detail);
     throw new Error(detail || 'Could not read the card. Check your internet connection and try again.');
   }
 
-  const lines = (data?.lines ?? []).map((l) => String(l).trim()).filter(Boolean);
-  const f = data?.fields ?? {};
+  if (!data || data.error) {
+    console.warn('[Pockit OCR] Edge Function returned no usable result', { code: data?.code ?? 'empty' });
+    throw new Error(data?.error || 'The card-reading service returned no result. Please try again.');
+  }
+
+  const lines = (Array.isArray(data.lines) ? data.lines : []).map((line) => String(line).trim()).filter(Boolean);
+  const fields = data.fields ?? {};
   return {
     text: lines.join('\n'),
     lines: lines.map((text) => ({ text })),
     fields: {
-      personName: clean(f.personName) ?? '',
-      companyName: clean(f.companyName),
-      designation: clean(f.designation),
-      phone: clean(f.phone),
-      email: clean(f.email),
-      website: clean(f.website),
-      address: clean(f.address),
-      // Newer scan-card versions return structured lists; older ones only the text above.
-      ...(Array.isArray(f.phones) ? { phones: f.phones } : {}),
-      ...(Array.isArray(f.addresses) ? { addresses: f.addresses } : {}),
+      personName: clean(fields.personName) ?? '',
+      companyName: clean(fields.companyName),
+      designation: clean(fields.designation),
+      phone: clean(fields.phone),
+      email: clean(fields.email),
+      website: clean(fields.website),
+      address: clean(fields.address),
+      ...(Array.isArray(fields.phones) ? { phones: fields.phones } : {}),
+      ...(Array.isArray(fields.addresses) ? { addresses: fields.addresses } : {}),
     },
   };
 }

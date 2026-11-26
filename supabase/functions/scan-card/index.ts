@@ -59,7 +59,7 @@ Return JSON only, following the schema.
     extension = digits after "Ext"/"Extn"/"x", else "".
   "Fax: 228747, 227343" with one shared prefix = two numbers: write the second one in full with the same prefix.
 - emails: every email address.
-- website: the website (without "Website:" labels).
+- websites: every website/URL, each as its own string and without "Website:" labels.
 - addresses: EVERY separate postal address on the card, each as its own item (do not merge them):
     label       = "registered", "corporate", "head", "branch", "regional", "factory" (also works/plant),
                   "warehouse", "office", "home", or "other" when the card does not say.
@@ -83,6 +83,7 @@ const SCHEMA = {
     },
     emails: { type: 'ARRAY', items: { type: 'STRING' } },
     website: { type: 'STRING' },
+    websites: { type: 'ARRAY', items: { type: 'STRING' } },
     addresses: {
       type: 'ARRAY',
       items: {
@@ -99,7 +100,7 @@ const SCHEMA = {
       },
     },
   },
-  required: ['lines', 'personName', 'companyName', 'designation', 'phones', 'emails', 'website', 'addresses'],
+  required: ['lines', 'personName', 'companyName', 'designation', 'phones', 'emails', 'website', 'websites', 'addresses'],
 };
 
 const PHONE_TYPES = ['mobile', 'landline', 'office', 'direct', 'fax', 'whatsapp'];
@@ -116,7 +117,13 @@ Deno.serve(async (req) => {
   const appKey = req.headers.get('apikey') ?? '';
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   if (!/^Bearer\s+\S+/i.test(authHeader) || !appKey || !supabaseUrl) return json({ error: 'Please sign in to scan cards.' }, 401);
-  const who = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { Authorization: authHeader, apikey: appKey } });
+  let who: Response;
+  try {
+    who = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { Authorization: authHeader, apikey: appKey } });
+  } catch {
+    console.error('scan-card auth lookup failed', { stage: 'auth_network' });
+    return json({ error: 'Could not verify your sign-in. Check your connection and try again.', code: 'auth_unavailable' }, 503);
+  }
   if (!who.ok) return json({ error: 'Please sign in to scan cards.' }, 401);
 
   // 2. Validate input.
@@ -134,10 +141,17 @@ Deno.serve(async (req) => {
   if (image.length > MAX_BASE64) return json({ error: 'Image is too large.' }, 413);
   if (!ALLOWED_TYPES.includes(mimeType)) return json({ error: 'Please use a JPG, PNG or WebP image.' }, 415);
 
-  // 3. Ask Gemini.
+  // 3. Select the model and submit only normalized image bytes + prompt.
+  let model: string;
   try {
-    const model = await pickModel(geminiKey);
-    const res = await fetch(`${API}/${model}:generateContent`, {
+    model = await pickModel(geminiKey);
+  } catch {
+    console.error('scan-card model selection failed', { stage: 'model_selection' });
+    return json({ error: 'The card-reading service is unavailable. Please try again later.', code: 'model_unavailable' }, 502);
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${API}/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
       body: JSON.stringify({
@@ -145,19 +159,38 @@ Deno.serve(async (req) => {
         generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
       }),
     });
-    if (res.status === 429) return json({ error: 'Too many scans right now (Gemini free limit). Try again in a minute.' }, 429);
-    if (!res.ok) {
-      console.error('Gemini error', res.status, await res.text());
-      return json({ error: 'The card could not be read. Please try again.' }, 502);
-    }
-    const out = await res.json();
-    const text: string = out?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
-    const r = JSON.parse(text || '{}');
+  } catch {
+    console.error('scan-card Gemini request failed', { stage: 'gemini_network' });
+    return json({ error: 'Could not reach the card-reading service. Check your connection and try again.', code: 'gemini_network' }, 502);
+  }
+  if (res.status === 429) return json({ error: 'Too many scans right now (Gemini free limit). Try again in a minute.', code: 'rate_limited' }, 429);
+  if (!res.ok) {
+    // Do not log the response body: keep diagnostics free of card or provider data.
+    console.error('scan-card Gemini request rejected', { stage: 'gemini_http', status: res.status });
+    return json({ error: 'The card could not be read. Please try again.', code: 'gemini_http' }, 502);
+  }
+
+  let out: { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  try {
+    out = await res.json();
+  } catch {
+    console.error('scan-card Gemini response was not JSON', { stage: 'gemini_response_json' });
+    return json({ error: 'The card-reading service returned an invalid response. Please try again.', code: 'gemini_response_json' }, 502);
+  }
+  const responseText = out?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+  let r: Record<string, unknown>;
+  try {
+    r = JSON.parse(responseText || '{}') as Record<string, unknown>;
+  } catch {
+    console.error('scan-card Gemini structured response parse failed', { stage: 'structured_parse' });
+    return json({ error: 'The card details could not be interpreted. Please retry or enter them manually.', code: 'structured_parse' }, 502);
+  }
+
+  try {
     const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
     const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
     const objects = (v: unknown) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []) as Record<string, unknown>[];
     const orNull = (v: unknown) => str(v) || null;
-
     const phones = objects(r.phones)
       .map((p) => {
         const type = str(p.type).toLowerCase();
@@ -178,6 +211,8 @@ Deno.serve(async (req) => {
         };
       })
       .filter((a) => a.fullAddress);
+    const websites = list(r.websites);
+    if (!websites.length && str(r.website)) websites.push(str(r.website));
 
     return json({
       lines: list(r.lines),
@@ -187,14 +222,14 @@ Deno.serve(async (req) => {
         designation: str(r.designation),
         phone: phones.map((p) => (p.extension ? `${p.raw} ext. ${p.extension}` : p.raw)).join(', '),
         email: list(r.emails).join(', '),
-        website: str(r.website),
+        website: websites.join(', '),
         address: addresses.map((a) => a.fullAddress).join(' | '),
         phones,
         addresses,
       },
     });
-  } catch (e) {
-    console.error('scan-card failed', e);
-    return json({ error: e instanceof Error ? e.message : 'The card could not be read.' }, 500);
+  } catch {
+    console.error('scan-card structured contact extraction failed', { stage: 'contact_extraction' });
+    return json({ error: 'The card details could not be extracted. Please retry or enter them manually.', code: 'contact_extraction' }, 502);
   }
 });

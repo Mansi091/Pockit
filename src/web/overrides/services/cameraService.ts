@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { openCropper, openWebcam } from '@/web/scanner/webcam';
+import { prepareImage } from '@/web/overrides/services/imageService';
 
 /**
  * Web version of cameraService.ts (same exports).
@@ -26,5 +27,16 @@ export async function takePhotoAndCrop(): Promise<PickedImage | null> {
 export async function pickFromGalleryAndCrop(): Promise<PickedImage | null> {
   const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
   if (result.canceled || !result.assets?.length) return null;
-  return openCropper(result.assets[0]!.uri);
+  const source = result.assets[0]!.uri;
+  try {
+    // Decode/re-encode before the crop UI. This handles Safari blob URLs and
+    // HEIC/HEIF whenever Safari can decode them, and makes unsupported files
+    // fail here with an actionable message instead of reaching OCR as blob:.
+    const normalized = await prepareImage(source, { maxDimension: 2400, compress: 0.92 });
+    return await openCropper(normalized.uri);
+  } finally {
+    // expo-image-picker creates an object URL for selected files on the web.
+    // We have our own JPEG data URL now; release the picker URL on success/cancel/error.
+    if (source.startsWith('blob:')) URL.revokeObjectURL(source);
+  }
 }

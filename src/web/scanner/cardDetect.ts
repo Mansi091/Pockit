@@ -103,14 +103,19 @@ export async function detectCard(source: Source): Promise<Quad | null> {
  * Returns a JPEG data URL of the flat card.
  */
 export function cropCard(image: HTMLImageElement | HTMLCanvasElement, quad: Quad, maxDim = 2000): { uri: string; width: number; height: number } {
-  const w = image instanceof HTMLImageElement ? image.naturalWidth : image.width;
-  const h = image instanceof HTMLImageElement ? image.naturalHeight : image.height;
+  const sourceW = image instanceof HTMLImageElement ? image.naturalWidth : image.width;
+  const sourceH = image instanceof HTMLImageElement ? image.naturalHeight : image.height;
+  // Photos from recent iPhones can exceed 40 MP. Bound the intermediate canvas
+  // before getImageData (four bytes per pixel) to avoid Safari tab memory kills.
+  const sourceScale = Math.min(1, 2400 / Math.max(sourceW, sourceH));
+  const w = Math.max(1, Math.round(sourceW * sourceScale));
+  const h = Math.max(1, Math.round(sourceH * sourceScale));
   const full = document.createElement('canvas');
   full.width = w;
   full.height = h;
   const fctx = full.getContext('2d', { willReadFrequently: true });
   if (!fctx) throw new Error('This browser cannot process images.');
-  fctx.drawImage(image, 0, 0);
+  fctx.drawImage(image, 0, 0, w, h);
   const px = quad.map((p) => ({ x: p.x * (w - 1), y: p.y * (h - 1) })) as Quad;
   const size = outputSize(px, maxDim);
   const pixels = warpImageData(fctx.getImageData(0, 0, w, h), px, size.width, size.height);
