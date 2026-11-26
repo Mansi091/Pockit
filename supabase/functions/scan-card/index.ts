@@ -21,6 +21,10 @@ const CORS = {
 const API = 'https://generativelanguage.googleapis.com/v1beta';
 const MAX_BASE64 = 6_000_000; // ≈4.5 MB image
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const GEMINI_503_MAX_RETRIES = 2; // 3 attempts total
+const GEMINI_RETRY_BASE_MS = 300;
+const GEMINI_RETRY_MAX_MS = 1_000;
+const GEMINI_RETRY_JITTER_MS = 250;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -106,6 +110,71 @@ const SCHEMA = {
 const PHONE_TYPES = ['mobile', 'landline', 'office', 'direct', 'fax', 'whatsapp'];
 const ADDRESS_LABELS = ['registered', 'corporate', 'head', 'branch', 'regional', 'factory', 'warehouse', 'office', 'home', 'other'];
 
+export interface GeminiRetryOptions {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  jitterMs?: number;
+  random?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  onRetry?: (response: Response, attempt: number, retryInMs: number) => void | Promise<void>;
+}
+
+/** Retry only temporary Gemini 503s, with a hard cap of 3 total requests. */
+export async function fetchGeminiWith503Retry(
+  send: () => Promise<Response>,
+  options: GeminiRetryOptions = {},
+): Promise<{ response: Response; attempts: number }> {
+  const maxRetries = Math.max(0, Math.min(2, options.maxRetries ?? GEMINI_503_MAX_RETRIES));
+  const baseDelayMs = options.baseDelayMs ?? GEMINI_RETRY_BASE_MS;
+  const maxDelayMs = options.maxDelayMs ?? GEMINI_RETRY_MAX_MS;
+  const jitterMs = options.jitterMs ?? GEMINI_RETRY_JITTER_MS;
+  const random = options.random ?? Math.random;
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 1; ; attempt++) {
+    const response = await send();
+    if (response.status !== 503 || attempt > maxRetries) return { response, attempts: attempt };
+
+    const exponential = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+    const retryInMs = exponential + Math.floor(Math.max(0, Math.min(0.999999, random())) * jitterMs);
+    await options.onRetry?.(response, attempt, retryInMs);
+    await sleep(retryInMs);
+  }
+}
+
+/** Log only known Gemini error fields, never the raw provider response body. */
+export async function geminiErrorDiagnostics(response: Response): Promise<Record<string, unknown>> {
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.slice(0, 80) ?? 'unknown';
+  try {
+    const body = await response.clone().json() as { error?: { code?: unknown; status?: unknown; message?: unknown } };
+    const error = body?.error;
+    if (!error || typeof error !== 'object') return { contentType, body: 'omitted_unrecognized_error_shape' };
+    const message = (typeof error.message === 'string' ? error.message : '')
+      .replace(/AIza[\w-]{20,}/g, '[REDACTED_API_KEY]')
+      .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]')
+      .replace(/\b(?:\+?\d[\d\s().-]{6,}\d)\b/g, '[REDACTED_NUMBER]')
+      .replace(/[A-Za-z0-9+/]{80,}={0,2}/g, '[REDACTED_BASE64]')
+      .slice(0, 400);
+    return {
+      contentType,
+      ...(typeof error.code === 'number' ? { code: error.code } : {}),
+      ...(typeof error.status === 'string' && /^[A-Z_]{1,40}$/.test(error.status) ? { providerStatus: error.status } : {}),
+      ...(message ? { message } : {}),
+    };
+  } catch {
+    return { contentType, body: 'omitted_unparseable_error_body' };
+  }
+}
+
+export function geminiUnavailableResponse(): Response {
+  return json({
+    error: 'Card reading is temporarily unavailable. Please wait a moment and try again.',
+    code: 'gemini_unavailable',
+  }, 503);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
@@ -150,23 +219,43 @@ Deno.serve(async (req) => {
     return json({ error: 'The card-reading service is unavailable. Please try again later.', code: 'model_unavailable' }, 502);
   }
   let res: Response;
+  let attempts = 0;
   try {
-    res = await fetch(`${API}/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: image } }, { text: PROMPT }] }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+    const result = await fetchGeminiWith503Retry(
+      () => fetch(`${API}/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: image } }, { text: PROMPT }] }],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+        }),
       }),
-    });
+      {
+        onRetry: async (retryResponse, attempt, retryInMs) => {
+          console.warn('scan-card Gemini temporary failure; retrying', {
+            stage: 'gemini_http', model, status: retryResponse.status, attempt, retryInMs,
+            providerError: await geminiErrorDiagnostics(retryResponse),
+          });
+        },
+      },
+    );
+    res = result.response;
+    attempts = result.attempts;
   } catch {
-    console.error('scan-card Gemini request failed', { stage: 'gemini_network' });
+    console.error('scan-card Gemini request failed', { stage: 'gemini_network', model, attempt: attempts + 1 });
     return json({ error: 'Could not reach the card-reading service. Check your connection and try again.', code: 'gemini_network' }, 502);
   }
-  if (res.status === 429) return json({ error: 'Too many scans right now (Gemini free limit). Try again in a minute.', code: 'rate_limited' }, 429);
   if (!res.ok) {
-    // Do not log the response body: keep diagnostics free of card or provider data.
-    console.error('scan-card Gemini request rejected', { stage: 'gemini_http', status: res.status });
+    const providerError = await geminiErrorDiagnostics(res);
+    console.error('scan-card Gemini request rejected', {
+      stage: 'gemini_http', model, status: res.status, attempts, providerError,
+    });
+    if (res.status === 429) {
+      return json({ error: 'Too many scans right now. Please wait a minute and try again.', code: 'rate_limited' }, 429);
+    }
+    if (res.status === 503) {
+      return geminiUnavailableResponse();
+    }
     return json({ error: 'The card could not be read. Please try again.', code: 'gemini_http' }, 502);
   }
 
