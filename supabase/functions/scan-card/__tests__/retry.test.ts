@@ -13,6 +13,7 @@ type RetryModule = {
   ) => Promise<{ response: Response; attempts: number }>;
   geminiErrorDiagnostics: (response: Response) => Promise<Record<string, unknown>>;
   geminiUnavailableResponse: () => Response;
+  orderGeminiModels: (models: { name: string; supportedGenerationMethods?: string[] }[], limit?: number) => string[];
 };
 
 let edge: RetryModule;
@@ -110,5 +111,18 @@ describe('scan-card Gemini resilience', () => {
     expect(response.status).toBe(503);
     expect(body.code).toBe('gemini_unavailable');
     expect(body.error).toMatch(/temporarily unavailable/i);
+  });
+
+  it('falls back across stable models: newest Flash first, then older Flash, then Flash-Lite; never previews', () => {
+    const gen = ['generateContent'];
+    const order = edge.orderGeminiModels([
+      { name: 'models/gemini-2.5-flash-lite', supportedGenerationMethods: gen },
+      { name: 'models/gemini-3.5-flash', supportedGenerationMethods: gen },
+      { name: 'models/gemini-3.5-flash-preview-11-2026', supportedGenerationMethods: gen },
+      { name: 'models/gemini-2.5-flash', supportedGenerationMethods: gen },
+      { name: 'models/gemini-3.5-pro', supportedGenerationMethods: gen },
+      { name: 'models/gemini-3.0-flash', supportedGenerationMethods: ['embedContent'] },
+    ]);
+    expect(order).toEqual(['models/gemini-3.5-flash', 'models/gemini-2.5-flash', 'models/gemini-2.5-flash-lite']);
   });
 });

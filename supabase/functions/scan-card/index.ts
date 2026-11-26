@@ -29,23 +29,51 @@ const GEMINI_RETRY_JITTER_MS = 250;
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
-let cachedModel: string | null = null;
+const MAX_MODELS = 3; // the newest model is often overloaded (503): fall back to up to 2 others
 
-/** Newest stable flash model this key can call (e.g. models/gemini-3.5-flash), unless GEMINI_MODEL is set. */
-async function pickModel(key: string): Promise<string> {
-  const pinned = Deno.env.get('GEMINI_MODEL');
-  if (pinned) return pinned.startsWith('models/') ? pinned : `models/${pinned}`;
-  if (cachedModel) return cachedModel;
-  const res = await fetch(`${API}/models?pageSize=1000`, { headers: { 'x-goog-api-key': key } });
-  if (!res.ok) throw new Error(`Could not list Gemini models (${res.status}). Check GEMINI_API_KEY.`);
-  const { models = [] } = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
-  const stable = models
-    .map((m) => ({ m, v: /^models\/gemini-(\d+(?:\.\d+)?)-flash$/.exec(m.name)?.[1] }))
-    .filter((x) => x.v && x.m.supportedGenerationMethods?.includes('generateContent'))
-    .sort((a, b) => Number(b.v) - Number(a.v));
-  if (!stable.length) throw new Error('No stable Gemini Flash model is available for this key. Set the GEMINI_MODEL secret.');
-  cachedModel = stable[0]!.m.name;
-  return cachedModel;
+let cachedModels: string[] | null = null;
+
+/**
+ * Stable Gemini models to try, best first: every "gemini-<v>-flash" (newest
+ * first), then "gemini-<v>-flash-lite" (newest first). Previews/experiments are
+ * never used. Pure, so it can be unit-tested.
+ */
+export function orderGeminiModels(models: { name: string; supportedGenerationMethods?: string[] }[], limit = MAX_MODELS): string[] {
+  return models
+    .map((m) => {
+      const hit = /^models\/gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/.exec(m.name);
+      return hit && m.supportedGenerationMethods?.includes('generateContent')
+        ? { name: m.name, version: Number(hit[1]), lite: !!hit[2] }
+        : null;
+    })
+    .filter((x): x is { name: string; version: number; lite: boolean } => !!x)
+    .sort((a, b) => Number(a.lite) - Number(b.lite) || b.version - a.version)
+    .slice(0, limit)
+    .map((x) => x.name);
+}
+
+/**
+ * Models to try for this request. GEMINI_MODEL (if set) goes first; the
+ * automatic list follows it as a fallback so one overloaded model never
+ * stops card reading.
+ */
+async function pickModels(key: string): Promise<string[]> {
+  const pinnedRaw = Deno.env.get('GEMINI_MODEL');
+  const pinned = pinnedRaw ? (pinnedRaw.startsWith('models/') ? pinnedRaw : `models/${pinnedRaw}`) : null;
+  if (!cachedModels) {
+    try {
+      const res = await fetch(`${API}/models?pageSize=1000`, { headers: { 'x-goog-api-key': key } });
+      if (!res.ok) throw new Error(`Could not list Gemini models (${res.status}). Check GEMINI_API_KEY.`);
+      const { models = [] } = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
+      cachedModels = orderGeminiModels(models);
+    } catch (e) {
+      if (!pinned) throw e;
+      cachedModels = [];
+    }
+  }
+  const list = pinned ? [pinned, ...cachedModels.filter((m) => m !== pinned)] : cachedModels;
+  if (!list.length) throw new Error('No stable Gemini Flash model is available for this key. Set the GEMINI_MODEL secret.');
+  return list.slice(0, MAX_MODELS);
 }
 
 const PROMPT = `You are reading a photo of a business card (possibly both sides, possibly rotated).
@@ -211,40 +239,56 @@ Deno.serve(async (req) => {
   if (!ALLOWED_TYPES.includes(mimeType)) return json({ error: 'Please use a JPG, PNG or WebP image.' }, 415);
 
   // 3. Select the model and submit only normalized image bytes + prompt.
-  let model: string;
+  let models: string[];
   try {
-    model = await pickModel(geminiKey);
+    models = await pickModels(geminiKey);
   } catch {
     console.error('scan-card model selection failed', { stage: 'model_selection' });
     return json({ error: 'The card-reading service is unavailable. Please try again later.', code: 'model_unavailable' }, 502);
   }
-  let res: Response;
+  const requestBody = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: image } }, { text: PROMPT }] }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+  });
+
+  // Try each model in turn. A model that is overloaded (503) or not available
+  // to this key (404) hands over to the next one; anything else is final.
+  let res: Response | null = null;
+  let model = models[0]!;
   let attempts = 0;
-  try {
-    const result = await fetchGeminiWith503Retry(
-      () => fetch(`${API}/${model}:generateContent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: image } }, { text: PROMPT }] }],
-          generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+  for (const [i, candidate] of models.entries()) {
+    model = candidate;
+    try {
+      const result = await fetchGeminiWith503Retry(
+        () => fetch(`${API}/${candidate}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+          body: requestBody,
         }),
-      }),
-      {
-        onRetry: async (retryResponse, attempt, retryInMs) => {
-          console.warn('scan-card Gemini temporary failure; retrying', {
-            stage: 'gemini_http', model, status: retryResponse.status, attempt, retryInMs,
-            providerError: await geminiErrorDiagnostics(retryResponse),
-          });
+        {
+          maxRetries: 1, // 2 tries per model; other models are the better retry
+          onRetry: async (retryResponse, attempt, retryInMs) => {
+            console.warn('scan-card Gemini temporary failure; retrying', {
+              stage: 'gemini_http', model: candidate, status: retryResponse.status, attempt, retryInMs,
+              providerError: await geminiErrorDiagnostics(retryResponse),
+            });
+          },
         },
-      },
-    );
-    res = result.response;
-    attempts = result.attempts;
-  } catch {
-    console.error('scan-card Gemini request failed', { stage: 'gemini_network', model, attempt: attempts + 1 });
-    return json({ error: 'Could not reach the card-reading service. Check your connection and try again.', code: 'gemini_network' }, 502);
+      );
+      res = result.response;
+      attempts = result.attempts;
+    } catch {
+      console.error('scan-card Gemini request failed', { stage: 'gemini_network', model: candidate, attempt: attempts + 1 });
+      return json({ error: 'Could not reach the card-reading service. Check your connection and try again.', code: 'gemini_network' }, 502);
+    }
+    const handOver = (res.status === 503 || res.status === 404) && i < models.length - 1;
+    if (!handOver) break;
+    console.warn('scan-card Gemini model unavailable; trying the next model', {
+      stage: 'model_fallback', model: candidate, status: res.status, next: models[i + 1],
+      providerError: await geminiErrorDiagnostics(res),
+    });
   }
+  if (!res) return geminiUnavailableResponse();
   if (!res.ok) {
     const providerError = await geminiErrorDiagnostics(res);
     console.error('scan-card Gemini request rejected', {
