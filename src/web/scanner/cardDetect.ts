@@ -14,6 +14,7 @@ import { WORKER_SOURCE } from '@/web/scanner/cardDetectWorker';
  * Used only by the web scanner (web/components/WebCardScanner).
  */
 const DETECT_MAX = 640; // detection runs on a small copy for speed
+const DETECTOR_START_TIMEOUT_MS = 15_000;
 
 let worker: Worker | null = null;
 let readyPromise: Promise<boolean> | null = null;
@@ -44,14 +45,27 @@ export function loadDetector(): Promise<boolean> {
   const w = getWorker();
   if (!w) return Promise.resolve(false);
   readyPromise = new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      w.removeEventListener('message', onMsg);
+      w.removeEventListener('error', onError);
+      if (!ok) {
+        w.terminate();
+        if (worker === w) worker = null;
+      }
+      resolve(ok);
+    };
     const onMsg = (e: MessageEvent) => {
       const t = (e.data as { type?: string })?.type;
-      if (t === 'ready' || t === 'failed') {
-        w.removeEventListener('message', onMsg);
-        resolve(t === 'ready');
-      }
+      if (t === 'ready' || t === 'failed') finish(t === 'ready');
     };
+    const onError = () => finish(false);
+    const timer = setTimeout(() => finish(false), DETECTOR_START_TIMEOUT_MS);
     w.addEventListener('message', onMsg);
+    w.addEventListener('error', onError);
     w.postMessage({ type: 'init' });
   }).then((ok) => {
     if (!ok) readyPromise = null; // allow a retry next time the scanner opens

@@ -21,6 +21,7 @@ type CamStatus = 'starting' | 'live' | 'error';
 const DETECT_EVERY_MS = 250;
 const STEADY_SHIFT = 0.025; // corners moving less than 2.5% of the frame…
 const STEADY_TICKS = 4; // …for 4 detections in a row (~1 s) → auto-capture
+const CAMERA_START_TIMEOUT_MS = 15_000;
 
 export default function WebCardScanner() {
   // Phones / narrow windows: full-screen scanner with the main button always in view.
@@ -116,12 +117,27 @@ export default function WebCardScanner() {
       stopCamera();
       setCamStatus('starting');
       setCamError(null);
+      let timedOut = false;
+      let startupTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error(''), { name: 'NotSupported' });
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const cameraRequest = navigator.mediaDevices.getUserMedia({
           video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
+        // Safari may leave getUserMedia pending while permission is unresolved.
+        // Stop a late-arriving stream after the timeout or when the modal closes.
+        void cameraRequest.then((lateStream) => {
+          if (cancelled || timedOut) lateStream.getTracks().forEach((t) => t.stop());
+        }).catch(() => {});
+        const timeout = new Promise<never>((_resolve, reject) => {
+          startupTimer = setTimeout(() => {
+            timedOut = true;
+            reject(Object.assign(new Error('Camera startup timed out.'), { name: 'CameraStartTimeout' }));
+          }, CAMERA_START_TIMEOUT_MS);
+        });
+        const stream = await Promise.race([cameraRequest, timeout]);
+        if (startupTimer) clearTimeout(startupTimer);
         if (cancelled) return stream.getTracks().forEach((t) => t.stop());
         streamRef.current = stream;
         const v = videoRef.current;
@@ -133,13 +149,17 @@ export default function WebCardScanner() {
       } catch (e) {
         const name = (e as { name?: string }).name;
         setCamError(
-          name === 'NotAllowedError'
+          name === 'CameraStartTimeout'
+            ? 'Camera startup is taking too long. Check Safari’s camera permission for this site, or close this and upload a photo instead.'
+            : name === 'NotAllowedError'
             ? 'Camera access is blocked. Click the camera icon in the address bar, allow the camera, then try again.'
             : name === 'NotFoundError' || name === 'OverconstrainedError'
               ? 'No camera was found on this computer. Close this and use "Upload a photo".'
               : 'The camera could not start. Close other apps using it and try again.',
         );
         setCamStatus('error');
+      } finally {
+        if (startupTimer) clearTimeout(startupTimer);
       }
     })();
     return () => {
