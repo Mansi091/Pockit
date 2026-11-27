@@ -36,7 +36,7 @@ type Mode = 'join' | 'create';
 type MemberAction = 'makeAdmin' | 'makeMember' | 'remove';
 
 /**
- * Company page (Settings → Company).
+ * Company page (Home → Work with your company).
  *  • Not in a company: join with an invite code; only platform Super Admins may create one.
  *  • Member: opt-in sharing settings and how many contacts you've shared.
  *  • Admin: also invite people and see the team (counts only for unshared contacts).
@@ -231,26 +231,30 @@ export default function CompanyScreen() {
           <View style={styles.heroIcon}>
             <Ionicons name="business-outline" size={26} color={colors.primary} />
           </View>
-          <Text style={styles.title}>Work with your team</Text>
+          <Text style={styles.title}>{canCreateCompany ? 'Work with your team' : 'Join your company'}</Text>
           <Text style={styles.subtitle}>
-            Join your company to share the contacts you choose. Everything stays private unless you share it.
+            {canCreateCompany
+              ? 'Join your company to share the contacts you choose. Everything stays private unless you share it.'
+              : 'Paste the invite code you received from your manager or team lead to join your company.'}
           </Text>
         </View>
 
         {offline && <FormError tone="info" message={offline} />}
 
-        <SegmentedTabs
-          value={mode}
-          onChange={(m) => {
-            setMode(m);
-            setError(null);
-          }}
-          style={{ marginBottom: spacing.lg }}
-          tabs={[
-            { key: 'join', label: 'Join with a code', icon: 'key-outline' },
-            ...(canCreateCompany ? [{ key: 'create' as const, label: 'Create a company', icon: 'add-circle-outline' as const }] : []),
-          ]}
-        />
+        {canCreateCompany && (
+          <SegmentedTabs
+            value={mode}
+            onChange={(m) => {
+              setMode(m);
+              setError(null);
+            }}
+            style={{ marginBottom: spacing.lg }}
+            tabs={[
+              { key: 'join', label: 'Join with a code', icon: 'key-outline' },
+              { key: 'create', label: 'Create a company', icon: 'add-circle-outline' },
+            ]}
+          />
+        )}
 
         <View style={styles.card}>
           <FormError message={error} />
@@ -258,7 +262,7 @@ export default function CompanyScreen() {
             <TextInput
               value={code}
               onChangeText={(t) => setCode(t.toUpperCase())}
-              placeholder="Invite code, e.g. 7F3A9C21"
+              placeholder={canCreateCompany ? 'Invite code, e.g. 7F3A9C21' : 'Paste invite code'}
               placeholderTextColor={colors.textSubtle}
               autoCapitalize="characters"
               autoCorrect={false}
@@ -295,7 +299,7 @@ export default function CompanyScreen() {
           />
           <Text style={styles.note}>
             {mode === 'join'
-              ? 'Ask your company admin for an 8-character invite code.'
+              ? 'Ask your manager or team lead for an 8-character invite code.'
               : 'You will be the first company admin and can invite its manager and members.'}
           </Text>
         </View>

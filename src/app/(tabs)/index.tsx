@@ -14,7 +14,7 @@ import { firstNameOf } from '@/auth/userName';
 import { useWebLayout } from '@/web/hooks/useWebLayout';
 import { getDashboardStats, getFavourites, getRecentContacts } from '@/services/contactService';
 import { useContactsVersion } from '@/services/dataEvents';
-import { getCachedOrganization } from '@/services/orgService';
+import { getCachedOrganization, type MyOrganization } from '@/services/orgService';
 import { getAllFollowUps, setFollowUpDone, type ReminderWithContact } from '@/services/activityService';
 import { bucketReminders, formatDue } from '@/utils/dates';
 import type { Contact, DashboardStats } from '@/types/contact';
@@ -44,6 +44,7 @@ export default function HomeScreen() {
   const [favourites, setFavourites] = useState<Contact[]>([]);
   const [due, setDue] = useState<{ list: ReminderWithContact[]; overdue: number; total: number }>({ list: [], overdue: 0, total: 0 });
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [organization, setOrganization] = useState<MyOrganization | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -65,6 +66,7 @@ export default function HomeScreen() {
       setStats(s);
       setRecent(r);
       setOrgName(org?.displayName ?? null);
+      setOrganization(org);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your contacts.');
     }
@@ -127,6 +129,29 @@ export default function HomeScreen() {
         </Text>
       </View>
       <Ionicons name="arrow-forward" size={20} color={colors.textOnPrimary} />
+    </Pressable>
+  );
+
+  const companyCta = (
+    <Pressable
+      onPress={() => router.push('/company')}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.companyCard, pressed && { opacity: 0.8 }]}
+    >
+      <View style={styles.companyIcon}>
+        <Ionicons name="business-outline" size={22} color={colors.primary} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.companyTitle} numberOfLines={1}>
+          {organization ? organization.name : 'Work with your company'}
+        </Text>
+        <Text style={styles.companySub}>
+          {organization
+            ? `${organization.role === 'admin' ? 'Company admin' : 'Team member'} · manage company sharing`
+            : 'Join your team with an invite code from your manager or team lead.'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={19} color={colors.textSubtle} />
     </Pressable>
   );
 
@@ -242,6 +267,7 @@ export default function HomeScreen() {
           <View style={styles.columns}>
             <View style={styles.mainCol}>{recentBlock}</View>
             <View style={styles.sideCol}>
+              {companyCta}
               {followUps}
               {favouritesBlock}
             </View>
@@ -272,6 +298,7 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
+          {companyCta}
           {scanCta}
           {due.list.length > 0 && followUps}
           {favouritesBlock}
@@ -386,6 +413,21 @@ const styles = StyleSheet.create({
   scanIcon: { width: 46, height: 46, borderRadius: radius.md, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   scanTitle: { fontFamily: 'Manrope_700Bold', color: colors.textOnPrimary, fontSize: 16 },
   scanSub: { fontFamily: 'Manrope_400Regular', color: '#C5CBBC', fontSize: 13, marginTop: 3 },
+  companyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    ...shadow,
+  },
+  companyIcon: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  companyTitle: { fontFamily: 'Manrope_700Bold', color: colors.text, fontSize: 15 },
+  companySub: { fontFamily: 'Manrope_400Regular', color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
 
   // Desktop dashboard
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
