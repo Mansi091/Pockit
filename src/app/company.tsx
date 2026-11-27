@@ -12,6 +12,7 @@ import { sheetStyles } from '@/components/Sheet';
 import { isBackupEnabled, setBackupEnabled } from '@/services/syncService';
 import { useAuth } from '@/auth/AuthProvider';
 import { fullNameOf } from '@/auth/userName';
+import { isSuperAdmin } from '@/services/superAdminService';
 import {
   countSharedContacts,
   createInvite,
@@ -36,12 +37,13 @@ type MemberAction = 'makeAdmin' | 'makeMember' | 'remove';
 
 /**
  * Company page (Settings → Company).
- *  • Not in a company: join with an invite code, or create one (you become admin).
+ *  • Not in a company: join with an invite code; only platform Super Admins may create one.
  *  • Member: opt-in sharing settings and how many contacts you've shared.
  *  • Admin: also invite people and see the team (counts only for unshared contacts).
  */
 export default function CompanyScreen() {
   const [org, setOrg] = useState<MyOrganization | null | undefined>(undefined);
+  const [canCreateCompany, setCanCreateCompany] = useState(false);
   const [offline, setOffline] = useState<string | null>(null);
   const [shareNew, setShareNew] = useState(false);
   const [sharedCount, setSharedCount] = useState(0);
@@ -64,6 +66,7 @@ export default function CompanyScreen() {
 
   const load = useCallback(async () => {
     setOffline(null);
+    setCanCreateCompany(await isSuperAdmin());
     setShareNew(await getShareNewContacts());
     setSharedCount(await countSharedContacts());
     setBackupOn(await isBackupEnabled());
@@ -117,6 +120,9 @@ export default function CompanyScreen() {
 
   const onJoinOrCreate = () =>
     run(mode, async () => {
+      if (mode === 'create' && !canCreateCompany) {
+        throw new Error('Only a Pockit Super Admin can create a company. Ask your company manager for an invite code.');
+      }
       const next = mode === 'join' ? await joinOrganization(code, myName) : await createOrganization(orgName, myName);
       setOrg(next);
       setCode('');
@@ -242,7 +248,7 @@ export default function CompanyScreen() {
           style={{ marginBottom: spacing.lg }}
           tabs={[
             { key: 'join', label: 'Join with a code', icon: 'key-outline' },
-            { key: 'create', label: 'Create a company', icon: 'add-circle-outline' },
+            ...(canCreateCompany ? [{ key: 'create' as const, label: 'Create a company', icon: 'add-circle-outline' as const }] : []),
           ]}
         />
 
@@ -290,7 +296,7 @@ export default function CompanyScreen() {
           <Text style={styles.note}>
             {mode === 'join'
               ? 'Ask your company admin for an 8-character invite code.'
-              : 'You will be the admin: you can invite people and see what they share.'}
+              : 'You will be the first company admin and can invite its manager and members.'}
           </Text>
         </View>
       </ScrollView>

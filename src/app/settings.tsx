@@ -160,7 +160,7 @@ export default function SettingsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.rowLabel}>{org ? org.name : 'Work with your team'}</Text>
             <Text style={styles.rowValue}>
-              {org ? `${org.role === 'admin' ? 'Admin' : 'Member'} · tap to manage sharing` : 'Create or join a company to share chosen contacts'}
+              {org ? `${org.role === 'admin' ? 'Admin' : 'Member'} · tap to manage sharing` : 'Join with an invite code to share chosen contacts'}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
